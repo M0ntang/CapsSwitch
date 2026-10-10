@@ -1,0 +1,41 @@
+#include <windows.h>
+
+#define IDI_APP_ICON 1
+#define CREATEPROCESS_MANIFEST_RESOURCE_ID 1
+#define RT_MANIFEST 24
+
+IDI_APP_ICON ICON "app.ico"
+CREATEPROCESS_MANIFEST_RESOURCE_ID RT_MANIFEST "app.manifest"
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION     1,0,0,0
+PRODUCTVERSION  1,0,0,0
+FILEFLAGSMASK   VS_FFI_FILEFLAGSMASK
+#ifdef _DEBUG
+FILEFLAGS       VS_FF_DEBUG
+#else
+FILEFLAGS       0x0L
+#endif
+FILEOS          VOS_NT_WINDOWS32
+FILETYPE        VFT_APP
+FILESUBTYPE     VFT2_UNKNOWN
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904b0"
+        BEGIN
+            VALUE "CompanyName",      "CapsSwitch Project"
+            VALUE "FileDescription",  "CapsSwitch - Lightweight Portable Keyboard Layout Switcher"
+            VALUE "FileVersion",      "1.0.0.0"
+            VALUE "InternalName",     "CapsSwitch"
+            VALUE "LegalCopyright",   "Copyright (c) 2026"
+            VALUE "OriginalFilename", "CapsSwitch.exe"
+            VALUE "ProductName",      "CapsSwitch"
+            VALUE "ProductVersion",   "1.0.0.0"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END

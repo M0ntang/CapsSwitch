@@ -1,0 +1,20 @@
+# Build artifacts
+build/
+bin/
+obj/
+*.exe
+*.o
+*.obj
+*.res
+*.pdb
+*.ilk
+
+# IDE & Editor files
+.vscode/
+.idea/
+*.user
+*.suo
+
+# Local config (user runtime config should not be tracked if created during local tests)
+# Note: sample config is embedded or documented
+config.json
