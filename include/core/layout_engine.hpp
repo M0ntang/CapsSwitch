@@ -24,8 +24,21 @@ public:
     wchar_t CharEnToRu(wchar_t ch);
     wchar_t CharRuToEn(wchar_t ch);
 
+    // Smart bidirectional text conversion (auto-detects source layout)
+    std::wstring ConvertTextSmart(const std::wstring& text);
+    WORD DetectLanguageOfText(const std::wstring& text);
+
+    // Feature: Translate currently selected fragment or last word
+    void ConvertSelectionOrLastWord();
+
     // Simulation of replacement text via SendInput
     void SimulateReplacement(size_t eraseCount, const std::wstring& newText);
+
+    // Clipboard helpers
+    std::wstring GetClipboardText();
+    bool SetClipboardText(const std::wstring& text);
+    std::wstring CopySelectedText(HWND hwnd);
+    void PasteText(HWND hwnd, const std::wstring& text, const std::wstring& restoreClipboard);
 
     // Input simulation state flag
     static bool IsSimulatingInput();

@@ -96,6 +96,7 @@ bool ConfigManager::Load() {
 
     config_.autoSwitch = parseBool("auto_switch", true);
     config_.capsLockSwitch = parseBool("caps_lock_switch", true);
+    config_.doubleCapsConvert = parseBool("double_caps_convert", true);
     config_.passwordGuard = parseBool("password_guard", true);
     config_.autostart = parseBool("autostart", false);
 
@@ -135,6 +136,7 @@ bool ConfigManager::Save() {
     ss << "{\n";
     ss << "  \"auto_switch\": " << (config_.autoSwitch ? "true" : "false") << ",\n";
     ss << "  \"caps_lock_switch\": " << (config_.capsLockSwitch ? "true" : "false") << ",\n";
+    ss << "  \"double_caps_convert\": " << (config_.doubleCapsConvert ? "true" : "false") << ",\n";
     ss << "  \"password_guard\": " << (config_.passwordGuard ? "true" : "false") << ",\n";
     ss << "  \"autostart\": " << (config_.autostart ? "true" : "false") << ",\n";
     ss << "  \"exclusions\": [\n";

@@ -1,4 +1,5 @@
 #include "core/layout_engine.hpp"
+#include "core/detector.hpp"
 #include <unordered_map>
 #include <vector>
 
@@ -57,24 +58,65 @@ WORD LayoutEngine::GetLayout(HWND hwnd) {
     if (!hwnd) return LANG_ID_EN;
 
     DWORD threadId = GetWindowThreadProcessId(hwnd, nullptr);
+    GUITHREADINFO gti = { sizeof(GUITHREADINFO) };
+    if (GetGUIThreadInfo(threadId, &gti) && gti.hwndFocus) {
+        threadId = GetWindowThreadProcessId(gti.hwndFocus, nullptr);
+    }
+
     HKL currentHkl = GetKeyboardLayout(threadId);
     return LOWORD(reinterpret_cast<DWORD_PTR>(currentHkl));
 }
 
 bool LayoutEngine::SwitchLayout(HWND hwnd, WORD targetLang) {
     if (!hwnd) hwnd = GetForegroundWindow();
+    if (!hwnd) return false;
+
+    DWORD targetThreadId = GetWindowThreadProcessId(hwnd, nullptr);
+    DWORD curThreadId = GetCurrentThreadId();
+
+    GUITHREADINFO gti = { sizeof(GUITHREADINFO) };
+    HWND focusWnd = hwnd;
+    if (GetGUIThreadInfo(targetThreadId, &gti) && gti.hwndFocus) {
+        focusWnd = gti.hwndFocus;
+        targetThreadId = GetWindowThreadProcessId(focusWnd, nullptr);
+    }
+
     HKL targetHkl = (targetLang == LANG_ID_RU) ? hklRu_ : hklEn_;
     if (!targetHkl) return false;
 
-    if (hwnd) {
-        // Send language change request to the target window
-        PostMessageW(hwnd, WM_INPUTLANGCHANGEREQUEST, 0, reinterpret_cast<LPARAM>(targetHkl));
+    // 1. PostMessage to focused window and top-level window
+    PostMessageW(focusWnd, WM_INPUTLANGCHANGEREQUEST, INPUTLANGCHANGE_FORWARD, reinterpret_cast<LPARAM>(targetHkl));
+    if (focusWnd != hwnd) {
+        PostMessageW(hwnd, WM_INPUTLANGCHANGEREQUEST, INPUTLANGCHANGE_FORWARD, reinterpret_cast<LPARAM>(targetHkl));
     }
-    ActivateKeyboardLayout(targetHkl, KLF_SETFORPROCESS);
+
+    // 2. AttachThreadInput and ActivateKeyboardLayout
+    if (targetThreadId != curThreadId) {
+        AttachThreadInput(curThreadId, targetThreadId, TRUE);
+        ActivateKeyboardLayout(targetHkl, KLF_SETFORPROCESS);
+        AttachThreadInput(curThreadId, targetThreadId, FALSE);
+    } else {
+        ActivateKeyboardLayout(targetHkl, KLF_SETFORPROCESS);
+    }
+
+    // 3. Fallback verification: if target thread layout still did not switch, simulate system hotkey (Alt+Shift)
+    HKL checkHkl = GetKeyboardLayout(targetThreadId);
+    if (LOWORD(reinterpret_cast<DWORD_PTR>(checkHkl)) != targetLang) {
+        s_simulatingInput.store(true, std::memory_order_release);
+        INPUT inputs[4] = {};
+        inputs[0].type = INPUT_KEYBOARD; inputs[0].ki.wVk = VK_MENU;
+        inputs[1].type = INPUT_KEYBOARD; inputs[1].ki.wVk = VK_SHIFT;
+        inputs[2].type = INPUT_KEYBOARD; inputs[2].ki.wVk = VK_SHIFT; inputs[2].ki.dwFlags = KEYEVENTF_KEYUP;
+        inputs[3].type = INPUT_KEYBOARD; inputs[3].ki.wVk = VK_MENU; inputs[3].ki.dwFlags = KEYEVENTF_KEYUP;
+        SendInput(4, inputs, sizeof(INPUT));
+        s_simulatingInput.store(false, std::memory_order_release);
+    }
+
     return true;
 }
 
 bool LayoutEngine::ToggleLayout(HWND hwnd) {
+    if (!hwnd) hwnd = GetForegroundWindow();
     WORD current = GetLayout(hwnd);
     WORD target = (current == LANG_ID_RU) ? LANG_ID_EN : LANG_ID_RU;
     return SwitchLayout(hwnd, target);
@@ -104,6 +146,175 @@ std::wstring LayoutEngine::RuToEn(const std::wstring& text) {
         ch = CharRuToEn(ch);
     }
     return result;
+}
+
+WORD LayoutEngine::DetectLanguageOfText(const std::wstring& text) {
+    int cyrillicCount = 0;
+    int latinCount = 0;
+    for (wchar_t ch : text) {
+        if ((ch >= L'а' && ch <= L'я') || (ch >= L'А' && ch <= L'Я') || ch == L'ё' || ch == L'Ё') {
+            cyrillicCount++;
+        } else if ((ch >= L'a' && ch <= L'z') || (ch >= L'A' && ch <= L'Z')) {
+            latinCount++;
+        }
+    }
+    return (cyrillicCount >= latinCount) ? LANG_ID_RU : LANG_ID_EN;
+}
+
+std::wstring LayoutEngine::ConvertTextSmart(const std::wstring& text) {
+    int cyrillicCount = 0;
+    int latinCount = 0;
+    for (wchar_t ch : text) {
+        if ((ch >= L'а' && ch <= L'я') || (ch >= L'А' && ch <= L'Я') || ch == L'ё' || ch == L'Ё') {
+            cyrillicCount++;
+        } else if ((ch >= L'a' && ch <= L'z') || (ch >= L'A' && ch <= L'Z') ||
+                   ch == L'[' || ch == L']' || ch == L';' || ch == L'\'' || ch == L',' || ch == L'.' || ch == L'`') {
+            latinCount++;
+        }
+    }
+
+    if (cyrillicCount > latinCount) {
+        return RuToEn(text);
+    } else {
+        return EnToRu(text);
+    }
+}
+
+std::wstring LayoutEngine::GetClipboardText() {
+    std::wstring text;
+    if (!OpenClipboard(nullptr)) return text;
+    HANDLE hData = GetClipboardData(CF_UNICODETEXT);
+    if (hData) {
+        wchar_t* pText = static_cast<wchar_t*>(GlobalLock(hData));
+        if (pText) {
+            text = pText;
+            GlobalUnlock(hData);
+        }
+    }
+    CloseClipboard();
+    return text;
+}
+
+bool LayoutEngine::SetClipboardText(const std::wstring& text) {
+    if (!OpenClipboard(nullptr)) return false;
+    EmptyClipboard();
+    HGLOBAL hGlob = GlobalAlloc(GMEM_MOVEABLE, (text.length() + 1) * sizeof(wchar_t));
+    if (hGlob) {
+        wchar_t* pBuf = static_cast<wchar_t*>(GlobalLock(hGlob));
+        if (pBuf) {
+            wcscpy_s(pBuf, text.length() + 1, text.c_str());
+            GlobalUnlock(hGlob);
+            SetClipboardData(CF_UNICODETEXT, hGlob);
+        }
+    }
+    CloseClipboard();
+    return true;
+}
+
+std::wstring LayoutEngine::CopySelectedText(HWND /*hwnd*/) {
+    std::wstring originalClipboard = GetClipboardText();
+
+    // Temporarily clear clipboard to detect if Ctrl+C placed new text
+    if (OpenClipboard(nullptr)) {
+        EmptyClipboard();
+        CloseClipboard();
+    }
+
+    // Send Ctrl+C
+    s_simulatingInput.store(true, std::memory_order_release);
+    INPUT in[4] = {};
+    in[0].type = INPUT_KEYBOARD; in[0].ki.wVk = VK_CONTROL;
+    in[1].type = INPUT_KEYBOARD; in[1].ki.wVk = 'C';
+    in[2].type = INPUT_KEYBOARD; in[2].ki.wVk = 'C'; in[2].ki.dwFlags = KEYEVENTF_KEYUP;
+    in[3].type = INPUT_KEYBOARD; in[3].ki.wVk = VK_CONTROL; in[3].ki.dwFlags = KEYEVENTF_KEYUP;
+    SendInput(4, in, sizeof(INPUT));
+    s_simulatingInput.store(false, std::memory_order_release);
+
+    Sleep(45);
+
+    std::wstring selectedText = GetClipboardText();
+
+    if (selectedText.empty()) {
+        // Nothing was selected; restore original clipboard
+        if (!originalClipboard.empty()) {
+            SetClipboardText(originalClipboard);
+        }
+    }
+
+    return selectedText;
+}
+
+void LayoutEngine::PasteText(HWND /*hwnd*/, const std::wstring& text, const std::wstring& restoreClipboard) {
+    SetClipboardText(text);
+
+    s_simulatingInput.store(true, std::memory_order_release);
+    INPUT in[4] = {};
+    in[0].type = INPUT_KEYBOARD; in[0].ki.wVk = VK_CONTROL;
+    in[1].type = INPUT_KEYBOARD; in[1].ki.wVk = 'V';
+    in[2].type = INPUT_KEYBOARD; in[2].ki.wVk = 'V'; in[2].ki.dwFlags = KEYEVENTF_KEYUP;
+    in[3].type = INPUT_KEYBOARD; in[3].ki.wVk = VK_CONTROL; in[3].ki.dwFlags = KEYEVENTF_KEYUP;
+    SendInput(4, in, sizeof(INPUT));
+    s_simulatingInput.store(false, std::memory_order_release);
+
+    Sleep(45);
+
+    // Restore user's clipboard history
+    if (!restoreClipboard.empty()) {
+        SetClipboardText(restoreClipboard);
+    }
+}
+
+void LayoutEngine::ConvertSelectionOrLastWord() {
+    HWND fg = GetForegroundWindow();
+    if (!fg) return;
+
+    std::wstring originalClipboard = GetClipboardText();
+
+    // 1. Check if user has selected text
+    std::wstring selected = CopySelectedText(fg);
+    if (!selected.empty()) {
+        std::wstring converted = ConvertTextSmart(selected);
+        WORD targetLang = DetectLanguageOfText(converted);
+
+        PasteText(fg, converted, originalClipboard);
+        SwitchLayout(fg, targetLang);
+        return;
+    }
+
+    // 2. If no selection, convert last typed word
+    std::wstring word = Detector::Instance().GetLastWordOrCurrent();
+    if (!word.empty()) {
+        std::wstring converted = ConvertTextSmart(word);
+        WORD targetLang = DetectLanguageOfText(converted);
+
+        SimulateReplacement(word.length(), converted);
+        SwitchLayout(fg, targetLang);
+        Detector::Instance().Reset();
+        return;
+    }
+
+    // 3. Fallback: select word to the left via Ctrl+Shift+Left, then convert
+    s_simulatingInput.store(true, std::memory_order_release);
+    INPUT selWord[6] = {};
+    selWord[0].type = INPUT_KEYBOARD; selWord[0].ki.wVk = VK_CONTROL;
+    selWord[1].type = INPUT_KEYBOARD; selWord[1].ki.wVk = VK_SHIFT;
+    selWord[2].type = INPUT_KEYBOARD; selWord[2].ki.wVk = VK_LEFT;
+    selWord[3].type = INPUT_KEYBOARD; selWord[3].ki.wVk = VK_LEFT; selWord[3].ki.dwFlags = KEYEVENTF_KEYUP;
+    selWord[4].type = INPUT_KEYBOARD; selWord[4].ki.wVk = VK_SHIFT; selWord[4].ki.dwFlags = KEYEVENTF_KEYUP;
+    selWord[5].type = INPUT_KEYBOARD; selWord[5].ki.wVk = VK_CONTROL; selWord[5].ki.dwFlags = KEYEVENTF_KEYUP;
+    SendInput(6, selWord, sizeof(INPUT));
+    s_simulatingInput.store(false, std::memory_order_release);
+
+    Sleep(40);
+
+    selected = CopySelectedText(fg);
+    if (!selected.empty()) {
+        std::wstring converted = ConvertTextSmart(selected);
+        WORD targetLang = DetectLanguageOfText(converted);
+
+        PasteText(fg, converted, originalClipboard);
+        SwitchLayout(fg, targetLang);
+    }
 }
 
 void LayoutEngine::SimulateReplacement(size_t eraseCount, const std::wstring& newText) {

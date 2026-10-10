@@ -7,6 +7,7 @@
 namespace Core {
 
 static const std::unordered_set<std::wstring> s_commonRuWords = {
+    // Basic vocabulary & user message terms
     L"привет", L"как", L"дела", L"что", L"это", L"быть", L"весь", L"этот", L"один", L"такой",
     L"только", L"сегодня", L"сейчас", L"когда", L"время", L"дело", L"жизнь", L"день", L"рука",
     L"слово", L"место", L"лицо", L"друг", L"глаз", L"дом", L"сторона", L"работа", L"город",
@@ -22,11 +23,15 @@ static const std::unordered_set<std::wstring> s_commonRuWords = {
     L"может", L"нужно", L"надо", L"можно", L"нельзя", L"правда", L"верно", L"скоро",
     L"здесь", L"тут", L"там", L"куда", L"откуда", L"везде", L"нигде", L"кстати", L"впрочем",
     L"приветник", L"проверка", L"тест", L"разработка", L"сборка", L"ошибка", L"проект",
+    L"плохо", L"функция", L"функции", L"присутствуют", L"присутствовать", L"работает", L"работают",
+    L"переключение", L"переключать", L"перевод", L"переводить", L"язык", L"языка", L"капслок",
+    L"выделенный", L"фрагмент", L"быстрый", L"быстрому", L"двойной", L"двойному", L"клик",
+    L"включена", L"включить", L"последнее", L"последний", L"раскладка", L"раскладку",
     L"он", L"она", L"они", L"оно", L"мы", L"вы", L"ты", L"я", L"мне", L"тебе", L"ему", L"ей",
     L"нам", L"вам", L"им", L"меня", L"тебя", L"его", L"ее", L"нас", L"вас", L"их",
     L"да", L"нет", L"ли", L"же", L"бы", L"не", L"ни", L"но", L"или", L"если", L"хотя",
-    L"чтобы", L"потому", L"так", L"как", L"где", L"кто", L"чем", L"кем", L"кому", L"чему",
-    L"все", L"всё", L"всех", L"всем", L"всей", L"всеми", L"сам", L"сама", L"сами", L"само"
+    L"чтобы", L"потому", L"так", L"где", L"кто", L"чем", L"кем", L"кому", L"чему", L"тоже",
+    L"еще", L"ещё", L"уже", L"все", L"всё", L"всех", L"всем", L"всей", L"всеми", L"сам", L"сама"
 };
 
 static const std::unordered_set<std::wstring> s_commonEnWords = {
@@ -50,17 +55,19 @@ static const std::unordered_set<std::wstring> s_commonEnWords = {
 
 // Impossible bigrams in Russian (standard words never contain these)
 static const wchar_t* s_impossibleRuBigrams[] = {
-    // Ъ followed by consonants or incorrect vowels
     L"ъб", L"ъв", L"ъг", L"ъд", L"ъж", L"ъз", L"ък", L"ъл", L"ъм", L"ън", L"ъп", L"ър", L"ъс", L"ът", L"ъф", L"ъх", L"ъц", L"ъч", L"ъш", L"ъщ",
     L"ъа", L"ъо", L"ъу", L"ъы", L"ъэ", L"ъи",
-    // Vowels followed by Ъ
     L"аъ", L"еъ", L"ёъ", L"иъ", L"оъ", L"уъ", L"ыъ", L"эъ", L"юъ", L"яъ",
-    // Ь followed by incorrect vowels
     L"ьа", L"ьу", L"ьы", L"ьэ",
-    // Combinations impossible in Russian (usually from typing EN on RU layout)
     L"жы", L"шы", L"чя", L"щя", L"чю", L"щю",
     L"ъъ", L"ьь", L"ъь", L"ьъ", L"ыы", L"йй",
     L"цш", L"ддщ", L"ьф", L"кщь", L"ащк", L"ршы", L"фму", L"нщг", L"гшд", L"ыек", L"мфд", L"огы", L"цщ", L"сщв"
+};
+
+// Common Russian prefixes for morphological analysis
+static const wchar_t* s_commonRuPrefixes[] = {
+    L"при", L"пре", L"про", L"пере", L"под", L"пред", L"по", L"от", L"до", L"за",
+    L"на", L"над", L"не", L"ни", L"раз", L"рас", L"без", L"бес", L"вы", L"со", L"из", L"ис"
 };
 
 Detector& Detector::Instance() {
@@ -79,11 +86,22 @@ void Detector::OnChar(wchar_t ch) {
 void Detector::OnBackspace() {
     if (!currentBuffer_.empty()) {
         currentBuffer_.pop_back();
+    } else if (!lastWord_.empty()) {
+        lastWord_.pop_back();
     }
 }
 
 void Detector::Reset() {
     currentBuffer_.clear();
+    lastWord_.clear();
+    lastDelimiter_ = 0;
+}
+
+std::wstring Detector::GetLastWordOrCurrent() const {
+    if (!currentBuffer_.empty()) {
+        return currentBuffer_;
+    }
+    return lastWord_;
 }
 
 bool Detector::HasRussianVowels(const std::wstring& word) const {
@@ -102,7 +120,7 @@ bool Detector::HasEnglishVowels(const std::wstring& word) const {
     for (wchar_t ch : word) {
         wchar_t lower = ::towlower(ch);
         if (lower == L'a' || lower == L'e' || lower == L'i' ||
-            lower == L'o' || lower == L'u' || lower == L'y') {
+            lower == L'o' || lower == L'u') {
             return true;
         }
     }
@@ -138,7 +156,14 @@ bool Detector::IsImpossibleEnglish(const std::wstring& word) const {
     if (word.empty()) return false;
     std::wstring lower = Platform::ToLower(word);
 
-    // English word of length >= 3 without vowels is extremely abnormal (e.g. ghbdtn, cghjc)
+    // If word contains characters mapped from Russian like [, ], ;, ', ,, ., `
+    for (wchar_t ch : lower) {
+        if (ch == L'[' || ch == L']' || ch == L';' || ch == L'\'' || ch == L',' || ch == L'.' || ch == L'`') {
+            return true;
+        }
+    }
+
+    // English word of length >= 3 without vowels is impossible
     if (lower.length() >= 3 && !HasEnglishVowels(lower)) {
         return true;
     }
@@ -147,7 +172,7 @@ bool Detector::IsImpossibleEnglish(const std::wstring& word) const {
     int consecutiveConsonants = 0;
     for (wchar_t ch : lower) {
         if (ch >= L'a' && ch <= L'z') {
-            if (ch == L'a' || ch == L'e' || ch == L'i' || ch == L'o' || ch == L'u' || ch == L'y') {
+            if (ch == L'a' || ch == L'e' || ch == L'i' || ch == L'o' || ch == L'u') {
                 consecutiveConsonants = 0;
             } else {
                 consecutiveConsonants++;
@@ -158,18 +183,27 @@ bool Detector::IsImpossibleEnglish(const std::wstring& word) const {
         }
     }
 
-    // Rare impossible bigrams
-    if (lower.find(L"q") != std::wstring::npos) {
-        // Q almost always followed by U in English words
-        for (size_t i = 0; i < lower.length(); ++i) {
-            if (lower[i] == L'q') {
-                if (i + 1 >= lower.length() || lower[i + 1] != L'u') {
-                    if (lower.length() > 2) return true;
-                }
-            }
+    // Rare impossible English letter pairs
+    static const wchar_t* s_impossibleEnBigrams[] = {
+        L"jx", L"jq", L"jz", L"vf", L"vg", L"vj", L"vk", L"vm", L"vn", L"vp", L"vr", L"vs", L"vt", L"vu", L"vx", L"vz",
+        L"gk", L"kj", L"wbb", L"hf", L"jn", L"gth", L"trk", L"ckj", L"jdj", L"ldj", L"jqy", L"scnh"
+    };
+    for (const auto* bigram : s_impossibleEnBigrams) {
+        if (lower.find(bigram) != std::wstring::npos) {
+            return true;
         }
     }
 
+    return false;
+}
+
+bool Detector::MatchesRussianMorphology(const std::wstring& word) const {
+    std::wstring lower = Platform::ToLower(word);
+    for (const auto* prefix : s_commonRuPrefixes) {
+        if (lower.rfind(prefix, 0) == 0 && lower.length() > wcslen(prefix)) {
+            return true;
+        }
+    }
     return false;
 }
 
@@ -189,57 +223,58 @@ DetectedSwitch Detector::EvaluateWord(wchar_t delimiter) {
     }
 
     std::wstring word = currentBuffer_;
-    Reset();
+    lastWord_ = word;
+    lastDelimiter_ = delimiter;
+    currentBuffer_.clear();
 
-    // Check if word looks like code / URL / numbers
+    // Check for numbers or code path indicators
     bool hasLetters = false;
-    bool hasDigitsOrSpecial = false;
     for (wchar_t ch : word) {
         if ((ch >= L'a' && ch <= L'z') || (ch >= L'A' && ch <= L'Z') ||
-            (ch >= L'а' && ch <= L'я') || (ch >= L'А' && ch <= L'Я') || ch == L'ё' || ch == L'Ё') {
+            (ch >= L'а' && ch <= L'я') || (ch >= L'А' && ch <= L'Я') || ch == L'ё' || ch == L'Ё' ||
+            ch == L'[' || ch == L']' || ch == L';' || ch == L'\'' || ch == L',' || ch == L'.' || ch == L'`') {
             hasLetters = true;
-        } else if (ch >= L'0' && ch <= L'9' || ch == L'_' || ch == L'/' || ch == L'\\' || ch == L'@' || ch == L'#') {
-            hasDigitsOrSpecial = true;
+        } else if (ch >= L'0' && ch <= L'9' || ch == L'_' || ch == L'\\' || ch == L'@' || ch == L'#') {
+            return result; // Code or number
         }
     }
 
-    if (!hasLetters || hasDigitsOrSpecial) {
+    if (!hasLetters || word.length() < 2) {
         return result;
     }
 
     std::wstring wordLower = Platform::ToLower(word);
 
-    // 1. Check if word is Latin (typed in EN layout)
-    bool isLatin = true;
+    // 1. Check if word is typed in EN layout (Latin + punctuation keys)
+    bool isEnLayout = true;
     for (wchar_t ch : wordLower) {
-        if (ch < L'a' || ch > L'z') {
-            isLatin = false;
+        if (!((ch >= L'a' && ch <= L'z') || ch == L'[' || ch == L']' || ch == L';' || ch == L'\'' || ch == L',' || ch == L'.' || ch == L'`')) {
+            isEnLayout = false;
             break;
         }
     }
 
-    // 2. Check if word is Cyrillic (typed in RU layout)
-    bool isCyrillic = true;
+    // 2. Check if word is typed in RU layout (Cyrillic)
+    bool isRuLayout = true;
     for (wchar_t ch : wordLower) {
         if (!((ch >= L'а' && ch <= L'я') || ch == L'ё')) {
-            isCyrillic = false;
+            isRuLayout = false;
             break;
         }
     }
 
-    if (isLatin) {
-        // Current layout is EN. Check if it was meant to be RU!
+    if (isEnLayout && !IsCommonEnglishWord(wordLower)) {
+        // Test translation to Russian
         std::wstring convertedToRu = LayoutEngine::Instance().EnToRu(word);
         std::wstring convertedLower = Platform::ToLower(convertedToRu);
 
-        // A. Is converted word in common Russian words?
         bool isKnownRu = IsCommonRussianWord(convertedLower);
-
-        // B. Is current word impossible in English, but valid in Russian?
         bool impossibleEn = IsImpossibleEnglish(wordLower);
         bool impossibleRu = IsImpossibleRussian(convertedLower);
+        bool hasRuMorph = MatchesRussianMorphology(convertedLower);
+        bool hasRuVowels = HasRussianVowels(convertedLower);
 
-        if (isKnownRu || (impossibleEn && !impossibleRu && HasRussianVowels(convertedLower))) {
+        if (isKnownRu || (hasRuVowels && !impossibleRu && (impossibleEn || hasRuMorph || wordLower.length() >= 4))) {
             result.shouldSwitch = true;
             result.currentLang = WordLanguage::English;
             result.targetLang = WordLanguage::Russian;
@@ -248,19 +283,17 @@ DetectedSwitch Detector::EvaluateWord(wchar_t delimiter) {
             result.delimiter = delimiter;
             return result;
         }
-    } else if (isCyrillic) {
-        // Current layout is RU. Check if it was meant to be EN!
+    } else if (isRuLayout && !IsCommonRussianWord(wordLower)) {
+        // Test translation to English
         std::wstring convertedToEn = LayoutEngine::Instance().RuToEn(word);
         std::wstring convertedLower = Platform::ToLower(convertedToEn);
 
-        // A. Is converted word in common English words?
         bool isKnownEn = IsCommonEnglishWord(convertedLower);
-
-        // B. Is current word impossible in Russian, but valid in English?
         bool impossibleRu = IsImpossibleRussian(wordLower);
         bool impossibleEn = IsImpossibleEnglish(convertedLower);
+        bool hasEnVowels = HasEnglishVowels(convertedLower);
 
-        if (isKnownEn || (impossibleRu && !impossibleEn && HasEnglishVowels(convertedLower))) {
+        if (isKnownEn || (hasEnVowels && !impossibleEn && (impossibleRu || wordLower.length() >= 4))) {
             result.shouldSwitch = true;
             result.currentLang = WordLanguage::Russian;
             result.targetLang = WordLanguage::English;
@@ -276,38 +309,6 @@ DetectedSwitch Detector::EvaluateWord(wchar_t delimiter) {
 
 DetectedSwitch Detector::CheckImmediate() {
     DetectedSwitch result;
-    if (currentBuffer_.length() < 3) {
-        return result;
-    }
-
-    std::wstring word = currentBuffer_;
-    std::wstring wordLower = Platform::ToLower(word);
-
-    // If Latin: check for immediate impossible sequence (e.g. 5 consonants in a row)
-    bool isLatin = true;
-    for (wchar_t ch : wordLower) {
-        if (ch < L'a' || ch > L'z') {
-            isLatin = false;
-            break;
-        }
-    }
-
-    if (isLatin) {
-        std::wstring convertedToRu = LayoutEngine::Instance().EnToRu(word);
-        std::wstring convertedLower = Platform::ToLower(convertedToRu);
-
-        if (IsCommonRussianWord(convertedLower)) {
-            result.shouldSwitch = true;
-            result.currentLang = WordLanguage::English;
-            result.targetLang = WordLanguage::Russian;
-            result.originalWord = word;
-            result.convertedWord = convertedToRu;
-            result.delimiter = 0;
-            Reset();
-            return result;
-        }
-    }
-
     return result;
 }
 

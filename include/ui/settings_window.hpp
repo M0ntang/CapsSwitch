@@ -49,6 +49,7 @@ private:
 
     RECT rcToggleAuto_ = {};
     RECT rcToggleCaps_ = {};
+    RECT rcToggleDoubleCaps_ = {};
     RECT rcTogglePwd_ = {};
     RECT rcToggleAutoStart_ = {};
 

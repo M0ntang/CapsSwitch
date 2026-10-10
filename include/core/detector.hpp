@@ -37,6 +37,7 @@ public:
     DetectedSwitch CheckImmediate();
 
     const std::wstring& GetCurrentBuffer() const { return currentBuffer_; }
+    std::wstring GetLastWordOrCurrent() const;
 
 private:
     Detector();
@@ -46,12 +47,15 @@ private:
     bool IsImpossibleEnglish(const std::wstring& word) const;
     bool HasRussianVowels(const std::wstring& word) const;
     bool HasEnglishVowels(const std::wstring& word) const;
+    bool MatchesRussianMorphology(const std::wstring& word) const;
 
     // Dictionary lookups
     bool IsCommonRussianWord(const std::wstring& word) const;
     bool IsCommonEnglishWord(const std::wstring& word) const;
 
     std::wstring currentBuffer_;
+    std::wstring lastWord_;
+    wchar_t lastDelimiter_ = 0;
 };
 
 } // namespace Core

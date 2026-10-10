@@ -9,6 +9,7 @@ namespace Config {
 struct AppConfig {
     bool autoSwitch = true;
     bool capsLockSwitch = true;
+    bool doubleCapsConvert = true;
     bool passwordGuard = true;
     bool autostart = false;
     std::vector<std::wstring> exclusions = {

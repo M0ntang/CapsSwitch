@@ -13,7 +13,7 @@
 namespace UI {
 
 constexpr int WINDOW_WIDTH = 520;
-constexpr int WINDOW_HEIGHT = 640;
+constexpr int WINDOW_HEIGHT = 680;
 
 constexpr COLORREF COL_BG = RGB(32, 32, 32);
 constexpr COLORREF COL_CARD = RGB(43, 43, 43);
@@ -109,7 +109,7 @@ bool SettingsWindow::Create() {
     hListBox_ = CreateWindowExW(
         0, L"LISTBOX", L"",
         WS_CHILD | WS_VISIBLE | WS_BORDER | WS_VSCROLL | LBS_NOTIFY | LBS_HASSTRINGS,
-        34, 385, 340, 110,
+        34, 430, 340, 105,
         hWnd_, (HMENU)ID_LIST_EXCL, wc.hInstance, nullptr
     );
     SendMessageW(hListBox_, WM_SETFONT, (WPARAM)hFontRegular_, TRUE);
@@ -117,7 +117,7 @@ bool SettingsWindow::Create() {
     hEditExcl_ = CreateWindowExW(
         0, L"EDIT", L"",
         WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL,
-        34, 345, 340, 26,
+        34, 390, 340, 26,
         hWnd_, (HMENU)ID_EDIT_EXCL, wc.hInstance, nullptr
     );
     SendMessageW(hEditExcl_, WM_SETFONT, (WPARAM)hFontRegular_, TRUE);
@@ -125,7 +125,7 @@ bool SettingsWindow::Create() {
     hBtnAdd_ = CreateWindowExW(
         0, L"BUTTON", L"Добавить",
         WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-        384, 345, 100, 26,
+        384, 390, 100, 26,
         hWnd_, (HMENU)ID_BTN_ADD, wc.hInstance, nullptr
     );
     SendMessageW(hBtnAdd_, WM_SETFONT, (WPARAM)hFontRegular_, TRUE);
@@ -133,7 +133,7 @@ bool SettingsWindow::Create() {
     hBtnRemove_ = CreateWindowExW(
         0, L"BUTTON", L"Удалить",
         WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-        384, 385, 100, 26,
+        384, 430, 100, 26,
         hWnd_, (HMENU)ID_BTN_REMOVE, wc.hInstance, nullptr
     );
     SendMessageW(hBtnRemove_, WM_SETFONT, (WPARAM)hFontRegular_, TRUE);
@@ -142,7 +142,7 @@ bool SettingsWindow::Create() {
     hBtnSave_ = CreateWindowExW(
         0, L"BUTTON", L"Сохранить",
         WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON,
-        280, 560, 105, 32,
+        280, 595, 105, 32,
         hWnd_, (HMENU)ID_BTN_SAVE, wc.hInstance, nullptr
     );
     SendMessageW(hBtnSave_, WM_SETFONT, (WPARAM)hFontBold_, TRUE);
@@ -150,7 +150,7 @@ bool SettingsWindow::Create() {
     hBtnClose_ = CreateWindowExW(
         0, L"BUTTON", L"Закрыть",
         WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-        395, 560, 90, 32,
+        395, 595, 90, 32,
         hWnd_, (HMENU)ID_BTN_CLOSE, wc.hInstance, nullptr
     );
     SendMessageW(hBtnClose_, WM_SETFONT, (WPARAM)hFontRegular_, TRUE);
@@ -293,7 +293,7 @@ void SettingsWindow::DrawSettingsCard(HDC hdc) {
     int cardX = 20;
     int cardY = 75;
     int cardW = 475;
-    int cardH = 210;
+    int cardH = 255;
 
     HBRUSH hOldB = (HBRUSH)SelectObject(hdc, hBrCard_);
     HPEN hPen = CreatePen(PS_SOLID, 1, COL_BORDER);
@@ -307,9 +307,9 @@ void SettingsWindow::DrawSettingsCard(HDC hdc) {
 
     const auto& cfg = Config::ConfigManager::Instance().Get();
 
-    // 4 Toggle Switches inside card
-    int startY = 88;
-    int stepY = 48;
+    // 5 Toggle Switches inside card
+    int startY = 86;
+    int stepY = 47;
 
     DrawToggle(hdc, 34, startY, cfg.autoSwitch,
         L"Автопереключение раскладки",
@@ -318,15 +318,20 @@ void SettingsWindow::DrawSettingsCard(HDC hdc) {
 
     DrawToggle(hdc, 34, startY + stepY, cfg.capsLockSwitch,
         L"Переключение по Caps Lock",
-        L"Циклическое переключение RU <-> EN и подавление триггера регистра",
+        L"Циклическое переключение RU <-> EN и подавление фиксатора регистра",
         rcToggleCaps_);
 
-    DrawToggle(hdc, 34, startY + stepY * 2, cfg.passwordGuard,
+    DrawToggle(hdc, 34, startY + stepY * 2, cfg.doubleCapsConvert,
+        L"Перевод по 2x Caps Lock",
+        L"Быстрый перевод выделенного текста или последнего слова",
+        rcToggleDoubleCaps_);
+
+    DrawToggle(hdc, 34, startY + stepY * 3, cfg.passwordGuard,
         L"Защита полей паролей",
         L"Авто-EN и отключение буферизации в скрытых полях ввода (UIA & Win32)",
         rcTogglePwd_);
 
-    DrawToggle(hdc, 34, startY + stepY * 3, cfg.autostart,
+    DrawToggle(hdc, 34, startY + stepY * 4, cfg.autostart,
         L"Автозапуск с Windows",
         L"Запуск при входе в систему с привязкой к текущему пути .exe",
         rcToggleAutoStart_);
@@ -334,9 +339,9 @@ void SettingsWindow::DrawSettingsCard(HDC hdc) {
 
 void SettingsWindow::DrawExclusionsCard(HDC hdc) {
     int cardX = 20;
-    int cardY = 300;
+    int cardY = 345;
     int cardW = 475;
-    int cardH = 240;
+    int cardH = 230;
 
     HBRUSH hOldB = (HBRUSH)SelectObject(hdc, hBrCard_);
     HPEN hPen = CreatePen(PS_SOLID, 1, COL_BORDER);
@@ -352,12 +357,12 @@ void SettingsWindow::DrawExclusionsCard(HDC hdc) {
     SetBkMode(hdc, TRANSPARENT);
     SetTextColor(hdc, COL_TEXT_PRI);
     SelectObject(hdc, hFontBold_);
-    RECT rcT = { 34, 310, 400, 328 };
+    RECT rcT = { 34, 355, 400, 373 };
     DrawTextW(hdc, L"Процессы-исключения", -1, &rcT, DT_LEFT | DT_SINGLELINE);
 
     SetTextColor(hdc, COL_TEXT_SEC);
     SelectObject(hdc, hFontSub_);
-    RECT rcS = { 34, 328, 480, 344 };
+    RECT rcS = { 34, 373, 480, 389 };
     DrawTextW(hdc, L"Приложения, в которых автоматическое исправление отключено (игры, терминалы)", -1, &rcS, DT_LEFT | DT_SINGLELINE);
 }
 
@@ -408,6 +413,9 @@ LRESULT SettingsWindow::HandleMessage(HWND hWnd, UINT msg, WPARAM wParam, LPARAM
             changed = true;
         } else if (PtInRect(&rcToggleCaps_, pt)) {
             cfg.capsLockSwitch = !cfg.capsLockSwitch;
+            changed = true;
+        } else if (PtInRect(&rcToggleDoubleCaps_, pt)) {
+            cfg.doubleCapsConvert = !cfg.doubleCapsConvert;
             changed = true;
         } else if (PtInRect(&rcTogglePwd_, pt)) {
             cfg.passwordGuard = !cfg.passwordGuard;
