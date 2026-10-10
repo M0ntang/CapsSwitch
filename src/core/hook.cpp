@@ -207,6 +207,8 @@ LRESULT CALLBACK HookManager::LowLevelKeyboardProc(int nCode, WPARAM wParam, LPA
 }
 
 void HookManager::WorkerThreadLoop() {
+    CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+
     HANDLE handles[2] = { hStopEvent_, hKeyEvent_ };
 
     while (isRunning_.load()) {
@@ -252,6 +254,8 @@ void HookManager::WorkerThreadLoop() {
             ProcessKeyEvent(ev);
         }
     }
+
+    CoUninitialize();
 }
 
 void HookManager::ProcessKeyEvent(const RawKeyEvent& ev) {
@@ -280,6 +284,10 @@ void HookManager::ProcessKeyEvent(const RawKeyEvent& ev) {
 
     DWORD threadId = GetWindowThreadProcessId(fg, nullptr);
     HKL currentHkl = GetKeyboardLayout(threadId);
+    WORD currentLang = LOWORD(reinterpret_cast<DWORD_PTR>(currentHkl));
+    if (onLayoutChanged_) {
+        onLayoutChanged_(currentLang);
+    }
 
     // Handle Backspace
     if (ev.vkCode == VK_BACK) {

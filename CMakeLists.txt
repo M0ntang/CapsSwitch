@@ -37,6 +37,7 @@ if(MSVC)
         advapi32
         shell32
         psapi
+        uuid
     )
 else()
     target_compile_options(CapsSwitch PRIVATE -O3 -Wall -Wextra)
@@ -54,5 +55,6 @@ else()
         advapi32
         shell32
         psapi
+        uuid
     )
 endif()

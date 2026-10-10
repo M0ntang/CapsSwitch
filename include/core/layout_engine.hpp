@@ -4,6 +4,8 @@
 #include <string>
 #include <atomic>
 
+struct ITfInputProcessorProfiles;
+
 namespace Core {
 
 constexpr WORD LANG_ID_EN = 0x0409;
@@ -12,6 +14,7 @@ constexpr WORD LANG_ID_RU = 0x0419;
 class LayoutEngine {
 public:
     static LayoutEngine& Instance();
+    ~LayoutEngine();
 
     // Layout identification & switching
     WORD GetLayout(HWND hwnd);
@@ -40,14 +43,21 @@ public:
     std::wstring CopySelectedText(HWND hwnd);
     void PasteText(HWND hwnd, const std::wstring& text, const std::wstring& restoreClipboard);
 
+    // Notification for Windows Text Services Framework & Taskbar indicator
+    void NotifyTsfAndTaskbar(WORD targetLang, HKL targetHkl);
+
     // Input simulation state flag
     static bool IsSimulatingInput();
 
 private:
     LayoutEngine();
+    void EnsureTsf();
+
     static std::atomic<bool> s_simulatingInput;
     HKL hklRu_ = nullptr;
     HKL hklEn_ = nullptr;
+    ITfInputProcessorProfiles* pTsfProfiles_ = nullptr;
+    HMODULE hMsCtf_ = nullptr;
 };
 
 } // namespace Core

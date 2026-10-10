@@ -45,7 +45,7 @@ echo [2/3] Compiling CapsSwitch C++20 Sources (Release, -O3, -s, -static)...
     src\ui\settings_window.cpp ^
     res\resource.o ^
     -o CapsSwitch.exe ^
-    -luser32 -lkernel32 -lgdi32 -luxtheme -ldwmapi -lole32 -loleaut32 -luiautomationcore -lcomctl32 -ladvapi32 -lshell32 -lpsapi
+    -luser32 -lkernel32 -lgdi32 -luxtheme -ldwmapi -lole32 -loleaut32 -luiautomationcore -lcomctl32 -ladvapi32 -lshell32 -lpsapi -luuid
 
 if %errorlevel% neq 0 (
     echo [ERROR] Build failed.

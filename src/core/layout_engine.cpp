@@ -1,5 +1,6 @@
 #include "core/layout_engine.hpp"
 #include "core/detector.hpp"
+#include <msctf.h>
 #include <unordered_map>
 #include <vector>
 
@@ -22,7 +23,7 @@ static const std::unordered_map<wchar_t, wchar_t> s_enToRuMap = {
     {L'Y', L'Н'}, {L'U', L'Г'}, {L'I', L'Ш'}, {L'O', L'Щ'}, {L'P', L'З'},
     {L'{', L'Х'}, {L'}', L'Ъ'}, {L'A', L'Ф'}, {L'S', L'Ы'}, {L'D', L'В'},
     {L'F', L'А'}, {L'G', L'П'}, {L'H', L'Р'}, {L'J', L'О'}, {L'K', L'Л'},
-    {L'L', L'Д'}, {L':', L'Ж'}, {L'\"', L'Э'}, {L'Z', L'Я'}, {L'X', L'Ч'},
+    {L'L', L'Д'}, {':', L'Ж'}, {L'\"', L'Э'}, {L'Z', L'Я'}, {L'X', L'Ч'},
     {L'C', L'С'}, {L'V', L'М'}, {L'B', L'И'}, {L'N', L'Т'}, {L'M', L'Ь'},
     {L'<', L'Б'}, {L'>', L'Ю'}, {L'~', L'Ё'},
 
@@ -60,6 +61,47 @@ LayoutEngine::LayoutEngine() {
     }
     if (!hklRu_) hklRu_ = LoadKeyboardLayoutW(L"00000419", KLF_NOTELLSHELL | KLF_SUBSTITUTE_OK);
     if (!hklEn_) hklEn_ = LoadKeyboardLayoutW(L"00000409", KLF_NOTELLSHELL | KLF_SUBSTITUTE_OK);
+
+    hMsCtf_ = LoadLibraryW(L"msctf.dll");
+    EnsureTsf();
+}
+
+LayoutEngine::~LayoutEngine() {
+    if (pTsfProfiles_) {
+        pTsfProfiles_->Release();
+        pTsfProfiles_ = nullptr;
+    }
+    if (hMsCtf_) {
+        FreeLibrary(hMsCtf_);
+        hMsCtf_ = nullptr;
+    }
+}
+
+void LayoutEngine::EnsureTsf() {
+    if (!pTsfProfiles_ && hMsCtf_) {
+        typedef HRESULT (WINAPI *pfnTF_CreateInputProcessorProfiles)(ITfInputProcessorProfiles **ppipr);
+        auto pCreate = reinterpret_cast<pfnTF_CreateInputProcessorProfiles>(
+            GetProcAddress(hMsCtf_, "TF_CreateInputProcessorProfiles")
+        );
+        if (pCreate) {
+            pCreate(&pTsfProfiles_);
+        }
+    }
+}
+
+void LayoutEngine::NotifyTsfAndTaskbar(WORD targetLang, HKL targetHkl) {
+    EnsureTsf();
+    if (pTsfProfiles_) {
+        static const GUID kGuidNull = { 0, 0, 0, { 0, 0, 0, 0, 0, 0, 0, 0 } };
+        pTsfProfiles_->ChangeCurrentLanguage(targetLang);
+        pTsfProfiles_->ActivateLanguageProfile(kGuidNull, targetLang, kGuidNull);
+    }
+
+    // Direct notification to Windows taskbar
+    HWND hTray = FindWindowW(L"Shell_TrayWnd", nullptr);
+    if (hTray) {
+        PostMessageW(hTray, WM_INPUTLANGCHANGEREQUEST, 0, reinterpret_cast<LPARAM>(targetHkl));
+    }
 }
 
 bool LayoutEngine::IsSimulatingInput() {
@@ -98,7 +140,6 @@ bool LayoutEngine::SwitchLayout(HWND hwnd, WORD targetLang) {
     if (!targetHkl) return false;
 
     // 1. PostMessage to focused window and top-level window with wParam = 0
-    // (wParam = 0 specifies that lParam holds the requested HKL, avoiding unwanted circular forward cycling)
     PostMessageW(focusWnd, WM_INPUTLANGCHANGEREQUEST, 0, reinterpret_cast<LPARAM>(targetHkl));
     if (focusWnd != hwnd) {
         PostMessageW(hwnd, WM_INPUTLANGCHANGEREQUEST, 0, reinterpret_cast<LPARAM>(targetHkl));
@@ -109,7 +150,10 @@ bool LayoutEngine::SwitchLayout(HWND hwnd, WORD targetLang) {
     SendMessageTimeoutW(focusWnd, WM_INPUTLANGCHANGEREQUEST, 0, reinterpret_cast<LPARAM>(targetHkl),
                         SMTO_ABORTIFHUNG | SMTO_NORMAL, 30, &dwResult);
 
-    // 3. AttachThreadInput and ActivateKeyboardLayout
+    // 3. Notify Text Services Framework (TSF) & Shell Taskbar so native Windows "ENG" / "РУС" badge updates immediately
+    NotifyTsfAndTaskbar(targetLang, targetHkl);
+
+    // 4. AttachThreadInput and ActivateKeyboardLayout
     if (targetThreadId != curThreadId) {
         AttachThreadInput(curThreadId, targetThreadId, TRUE);
         ActivateKeyboardLayout(targetHkl, KLF_SETFORPROCESS);
@@ -118,7 +162,7 @@ bool LayoutEngine::SwitchLayout(HWND hwnd, WORD targetLang) {
         ActivateKeyboardLayout(targetHkl, KLF_SETFORPROCESS);
     }
 
-    // 4. Verification: check if target thread layout switched
+    // 5. Verification: check if target thread layout switched
     HKL checkHkl = GetKeyboardLayout(targetThreadId);
     WORD currentLang = LOWORD(reinterpret_cast<DWORD_PTR>(checkHkl));
 
@@ -126,7 +170,7 @@ bool LayoutEngine::SwitchLayout(HWND hwnd, WORD targetLang) {
                     ((targetLang & 0xFF) == 0x09 && (currentLang & 0xFF) == 0x09));
 
     // Fallback: if after 20ms the layout still did not switch (e.g. console, UWP, or elevated app),
-    // simulate system layout hotkey (Alt+Shift)
+    // simulate system layout hotkey (respecting user's configured hotkey in Windows)
     if (!isMatch) {
         Sleep(20);
         checkHkl = GetKeyboardLayout(targetThreadId);
@@ -135,12 +179,32 @@ bool LayoutEngine::SwitchLayout(HWND hwnd, WORD targetLang) {
                    ((targetLang & 0xFF) == 0x09 && (currentLang & 0xFF) == 0x09));
 
         if (!isMatch) {
+            DWORD hotkeyType = 1; // 1 = Alt+Shift, 2 = Ctrl+Shift
+            HKEY hKey = nullptr;
+            if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Keyboard Layout\\Toggle", 0, KEY_READ, &hKey) == ERROR_SUCCESS) {
+                wchar_t val[16] = {0};
+                DWORD valSize = sizeof(val);
+                if (RegQueryValueExW(hKey, L"Hotkey", nullptr, nullptr, reinterpret_cast<LPBYTE>(val), &valSize) == ERROR_SUCCESS) {
+                    if (val[0] == L'2') hotkeyType = 2;
+                }
+                RegCloseKey(hKey);
+            }
+
             s_simulatingInput.store(true, std::memory_order_release);
             INPUT inputs[4] = {};
-            inputs[0].type = INPUT_KEYBOARD; inputs[0].ki.wVk = VK_MENU;
-            inputs[1].type = INPUT_KEYBOARD; inputs[1].ki.wVk = VK_SHIFT;
-            inputs[2].type = INPUT_KEYBOARD; inputs[2].ki.wVk = VK_SHIFT; inputs[2].ki.dwFlags = KEYEVENTF_KEYUP;
-            inputs[3].type = INPUT_KEYBOARD; inputs[3].ki.wVk = VK_MENU; inputs[3].ki.dwFlags = KEYEVENTF_KEYUP;
+            if (hotkeyType == 2) {
+                // Ctrl + Shift
+                inputs[0].type = INPUT_KEYBOARD; inputs[0].ki.wVk = VK_CONTROL;
+                inputs[1].type = INPUT_KEYBOARD; inputs[1].ki.wVk = VK_SHIFT;
+                inputs[2].type = INPUT_KEYBOARD; inputs[2].ki.wVk = VK_SHIFT; inputs[2].ki.dwFlags = KEYEVENTF_KEYUP;
+                inputs[3].type = INPUT_KEYBOARD; inputs[3].ki.wVk = VK_CONTROL; inputs[3].ki.dwFlags = KEYEVENTF_KEYUP;
+            } else {
+                // Alt + Shift
+                inputs[0].type = INPUT_KEYBOARD; inputs[0].ki.wVk = VK_MENU;
+                inputs[1].type = INPUT_KEYBOARD; inputs[1].ki.wVk = VK_SHIFT;
+                inputs[2].type = INPUT_KEYBOARD; inputs[2].ki.wVk = VK_SHIFT; inputs[2].ki.dwFlags = KEYEVENTF_KEYUP;
+                inputs[3].type = INPUT_KEYBOARD; inputs[3].ki.wVk = VK_MENU; inputs[3].ki.dwFlags = KEYEVENTF_KEYUP;
+            }
             SendInput(4, inputs, sizeof(INPUT));
             s_simulatingInput.store(false, std::memory_order_release);
         }
