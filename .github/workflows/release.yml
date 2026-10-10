@@ -1,0 +1,56 @@
+name: Build & Release CapsSwitch
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build Standalone Executable
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup MinGW / GCC
+        uses: egor-tensin/setup-mingw@v2
+        with:
+          platform: x64
+
+      - name: Build CapsSwitch.exe
+        run: |
+          windres -I res -i res/resource.rc -o res/resource.o
+          g++ -std=c++20 -O3 -s -mwindows -static `
+            -I include `
+            src/main.cpp `
+            src/config/config.cpp `
+            src/core/detector.cpp `
+            src/core/hook.cpp `
+            src/core/layout_engine.cpp `
+            src/platform/password_guard.cpp `
+            src/platform/tray.cpp `
+            src/platform/win32_utils.cpp `
+            src/ui/settings_window.cpp `
+            res/resource.o `
+            -o CapsSwitch.exe `
+            -luser32 -lkernel32 -lgdi32 -luxtheme -ldwmapi -lole32 -loleaut32 -luiautomationcore -lcomctl32 -ladvapi32 -lshell32 -lpsapi
+
+      - name: Verify Executable
+        run: |
+          Get-Item CapsSwitch.exe | Format-List Length, Name
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: CapsSwitch.exe
+          name: CapsSwitch ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
