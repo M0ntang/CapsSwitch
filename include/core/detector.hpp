@@ -38,6 +38,8 @@ public:
 
     const std::wstring& GetCurrentBuffer() const { return currentBuffer_; }
     std::wstring GetLastWordOrCurrent() const;
+    wchar_t GetLastDelimiter() const { return lastDelimiter_; }
+    void SetLastWord(const std::wstring& word, wchar_t delim);
 
 private:
     Detector();

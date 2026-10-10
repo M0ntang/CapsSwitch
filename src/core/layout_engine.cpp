@@ -45,8 +45,21 @@ LayoutEngine& LayoutEngine::Instance() {
 }
 
 LayoutEngine::LayoutEngine() {
-    hklRu_ = LoadKeyboardLayoutW(L"00000419", KLF_NOTELLSHELL | KLF_SUBSTITUTE_OK);
-    hklEn_ = LoadKeyboardLayoutW(L"00000409", KLF_NOTELLSHELL | KLF_SUBSTITUTE_OK);
+    int count = GetKeyboardLayoutList(0, nullptr);
+    if (count > 0) {
+        std::vector<HKL> list(count);
+        GetKeyboardLayoutList(count, list.data());
+        for (HKL hkl : list) {
+            WORD lang = LOWORD(reinterpret_cast<DWORD_PTR>(hkl));
+            if ((lang & 0xFF) == 0x19) {
+                hklRu_ = hkl;
+            } else if ((lang & 0xFF) == 0x09) {
+                hklEn_ = hkl;
+            }
+        }
+    }
+    if (!hklRu_) hklRu_ = LoadKeyboardLayoutW(L"00000419", KLF_NOTELLSHELL | KLF_SUBSTITUTE_OK);
+    if (!hklEn_) hklEn_ = LoadKeyboardLayoutW(L"00000409", KLF_NOTELLSHELL | KLF_SUBSTITUTE_OK);
 }
 
 bool LayoutEngine::IsSimulatingInput() {
@@ -84,13 +97,19 @@ bool LayoutEngine::SwitchLayout(HWND hwnd, WORD targetLang) {
     HKL targetHkl = (targetLang == LANG_ID_RU) ? hklRu_ : hklEn_;
     if (!targetHkl) return false;
 
-    // 1. PostMessage to focused window and top-level window
-    PostMessageW(focusWnd, WM_INPUTLANGCHANGEREQUEST, INPUTLANGCHANGE_FORWARD, reinterpret_cast<LPARAM>(targetHkl));
+    // 1. PostMessage to focused window and top-level window with wParam = 0
+    // (wParam = 0 specifies that lParam holds the requested HKL, avoiding unwanted circular forward cycling)
+    PostMessageW(focusWnd, WM_INPUTLANGCHANGEREQUEST, 0, reinterpret_cast<LPARAM>(targetHkl));
     if (focusWnd != hwnd) {
-        PostMessageW(hwnd, WM_INPUTLANGCHANGEREQUEST, INPUTLANGCHANGE_FORWARD, reinterpret_cast<LPARAM>(targetHkl));
+        PostMessageW(hwnd, WM_INPUTLANGCHANGEREQUEST, 0, reinterpret_cast<LPARAM>(targetHkl));
     }
 
-    // 2. AttachThreadInput and ActivateKeyboardLayout
+    // 2. Also send synchronous SendMessageTimeoutW to ensure immediate dispatch in standard Win32 apps
+    DWORD_PTR dwResult = 0;
+    SendMessageTimeoutW(focusWnd, WM_INPUTLANGCHANGEREQUEST, 0, reinterpret_cast<LPARAM>(targetHkl),
+                        SMTO_ABORTIFHUNG | SMTO_NORMAL, 30, &dwResult);
+
+    // 3. AttachThreadInput and ActivateKeyboardLayout
     if (targetThreadId != curThreadId) {
         AttachThreadInput(curThreadId, targetThreadId, TRUE);
         ActivateKeyboardLayout(targetHkl, KLF_SETFORPROCESS);
@@ -99,17 +118,32 @@ bool LayoutEngine::SwitchLayout(HWND hwnd, WORD targetLang) {
         ActivateKeyboardLayout(targetHkl, KLF_SETFORPROCESS);
     }
 
-    // 3. Fallback verification: if target thread layout still did not switch, simulate system hotkey (Alt+Shift)
+    // 4. Verification: check if target thread layout switched
     HKL checkHkl = GetKeyboardLayout(targetThreadId);
-    if (LOWORD(reinterpret_cast<DWORD_PTR>(checkHkl)) != targetLang) {
-        s_simulatingInput.store(true, std::memory_order_release);
-        INPUT inputs[4] = {};
-        inputs[0].type = INPUT_KEYBOARD; inputs[0].ki.wVk = VK_MENU;
-        inputs[1].type = INPUT_KEYBOARD; inputs[1].ki.wVk = VK_SHIFT;
-        inputs[2].type = INPUT_KEYBOARD; inputs[2].ki.wVk = VK_SHIFT; inputs[2].ki.dwFlags = KEYEVENTF_KEYUP;
-        inputs[3].type = INPUT_KEYBOARD; inputs[3].ki.wVk = VK_MENU; inputs[3].ki.dwFlags = KEYEVENTF_KEYUP;
-        SendInput(4, inputs, sizeof(INPUT));
-        s_simulatingInput.store(false, std::memory_order_release);
+    WORD currentLang = LOWORD(reinterpret_cast<DWORD_PTR>(checkHkl));
+
+    bool isMatch = (((targetLang & 0xFF) == 0x19 && (currentLang & 0xFF) == 0x19) ||
+                    ((targetLang & 0xFF) == 0x09 && (currentLang & 0xFF) == 0x09));
+
+    // Fallback: if after 20ms the layout still did not switch (e.g. console, UWP, or elevated app),
+    // simulate system layout hotkey (Alt+Shift)
+    if (!isMatch) {
+        Sleep(20);
+        checkHkl = GetKeyboardLayout(targetThreadId);
+        currentLang = LOWORD(reinterpret_cast<DWORD_PTR>(checkHkl));
+        isMatch = (((targetLang & 0xFF) == 0x19 && (currentLang & 0xFF) == 0x19) ||
+                   ((targetLang & 0xFF) == 0x09 && (currentLang & 0xFF) == 0x09));
+
+        if (!isMatch) {
+            s_simulatingInput.store(true, std::memory_order_release);
+            INPUT inputs[4] = {};
+            inputs[0].type = INPUT_KEYBOARD; inputs[0].ki.wVk = VK_MENU;
+            inputs[1].type = INPUT_KEYBOARD; inputs[1].ki.wVk = VK_SHIFT;
+            inputs[2].type = INPUT_KEYBOARD; inputs[2].ki.wVk = VK_SHIFT; inputs[2].ki.dwFlags = KEYEVENTF_KEYUP;
+            inputs[3].type = INPUT_KEYBOARD; inputs[3].ki.wVk = VK_MENU; inputs[3].ki.dwFlags = KEYEVENTF_KEYUP;
+            SendInput(4, inputs, sizeof(INPUT));
+            s_simulatingInput.store(false, std::memory_order_release);
+        }
     }
 
     return true;
@@ -118,7 +152,8 @@ bool LayoutEngine::SwitchLayout(HWND hwnd, WORD targetLang) {
 bool LayoutEngine::ToggleLayout(HWND hwnd) {
     if (!hwnd) hwnd = GetForegroundWindow();
     WORD current = GetLayout(hwnd);
-    WORD target = (current == LANG_ID_RU) ? LANG_ID_EN : LANG_ID_RU;
+    bool isRu = ((current & 0xFF) == 0x19);
+    WORD target = isRu ? LANG_ID_EN : LANG_ID_RU;
     return SwitchLayout(hwnd, target);
 }
 
@@ -158,7 +193,9 @@ WORD LayoutEngine::DetectLanguageOfText(const std::wstring& text) {
             latinCount++;
         }
     }
-    return (cyrillicCount >= latinCount) ? LANG_ID_RU : LANG_ID_EN;
+    if (cyrillicCount > latinCount) return LANG_ID_RU;
+    if (latinCount > cyrillicCount) return LANG_ID_EN;
+    return (cyrillicCount > 0) ? LANG_ID_RU : LANG_ID_EN;
 }
 
 std::wstring LayoutEngine::ConvertTextSmart(const std::wstring& text) {
@@ -278,18 +315,31 @@ void LayoutEngine::ConvertSelectionOrLastWord() {
 
         PasteText(fg, converted, originalClipboard);
         SwitchLayout(fg, targetLang);
+        Detector::Instance().SetLastWord(converted, 0);
         return;
     }
 
     // 2. If no selection, convert last typed word
+    std::wstring currentBuf = Detector::Instance().GetCurrentBuffer();
     std::wstring word = Detector::Instance().GetLastWordOrCurrent();
+    wchar_t delim = Detector::Instance().GetLastDelimiter();
+
     if (!word.empty()) {
         std::wstring converted = ConvertTextSmart(word);
         WORD targetLang = DetectLanguageOfText(converted);
 
-        SimulateReplacement(word.length(), converted);
+        size_t eraseCount = word.length();
+        std::wstring replacement = converted;
+
+        // If the word was completed with a delimiter (currentBuffer_ is empty, but lastWord is set)
+        if (currentBuf.empty() && delim != 0) {
+            eraseCount += 1;
+            replacement += delim;
+        }
+
+        SimulateReplacement(eraseCount, replacement);
         SwitchLayout(fg, targetLang);
-        Detector::Instance().Reset();
+        Detector::Instance().SetLastWord(converted, (currentBuf.empty() ? delim : 0));
         return;
     }
 
@@ -314,6 +364,7 @@ void LayoutEngine::ConvertSelectionOrLastWord() {
 
         PasteText(fg, converted, originalClipboard);
         SwitchLayout(fg, targetLang);
+        Detector::Instance().SetLastWord(converted, 0);
     }
 }
 

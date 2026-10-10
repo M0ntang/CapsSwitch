@@ -314,6 +314,7 @@ void HookManager::ProcessKeyEvent(const RawKeyEvent& ev) {
                 if (onLayoutChanged_) {
                     onLayoutChanged_(targetLang);
                 }
+                Detector::Instance().SetLastWord(sw.convertedWord, sw.delimiter);
             }
         } else {
             Detector::Instance().Reset();
@@ -347,6 +348,7 @@ void HookManager::ProcessKeyEvent(const RawKeyEvent& ev) {
                     if (onLayoutChanged_) {
                         onLayoutChanged_(targetLang);
                     }
+                    Detector::Instance().SetLastWord(sw.convertedWord, sw.delimiter);
                     return;
                 }
             }
