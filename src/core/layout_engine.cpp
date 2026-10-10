@@ -124,91 +124,106 @@ WORD LayoutEngine::GetLayout(HWND hwnd) {
 
 bool LayoutEngine::SwitchLayout(HWND hwnd, WORD targetLang) {
     if (!hwnd) hwnd = GetForegroundWindow();
-    if (!hwnd) return false;
 
-    DWORD targetThreadId = GetWindowThreadProcessId(hwnd, nullptr);
-    DWORD curThreadId = GetCurrentThreadId();
+    DWORD targetThreadId = hwnd ? GetWindowThreadProcessId(hwnd, nullptr) : 0;
+    HKL currentHkl = targetThreadId ? GetKeyboardLayout(targetThreadId) : GetKeyboardLayout(0);
+    WORD currentLang = LOWORD(reinterpret_cast<DWORD_PTR>(currentHkl));
 
-    GUITHREADINFO gti = { sizeof(GUITHREADINFO) };
-    HWND focusWnd = hwnd;
-    if (GetGUIThreadInfo(targetThreadId, &gti) && gti.hwndFocus) {
-        focusWnd = gti.hwndFocus;
-        targetThreadId = GetWindowThreadProcessId(focusWnd, nullptr);
+    bool isMatch = (((targetLang & 0xFF) == 0x19 && (currentLang & 0xFF) == 0x19) ||
+                    ((targetLang & 0xFF) == 0x09 && (currentLang & 0xFF) == 0x09));
+
+    // If current language already matches target, nothing to do
+    if (isMatch) {
+        return true;
     }
 
     HKL targetHkl = (targetLang == LANG_ID_RU) ? hklRu_ : hklEn_;
     if (!targetHkl) return false;
 
-    // 1. PostMessage to focused window and top-level window with wParam = 0
-    PostMessageW(focusWnd, WM_INPUTLANGCHANGEREQUEST, 0, reinterpret_cast<LPARAM>(targetHkl));
-    if (focusWnd != hwnd) {
-        PostMessageW(hwnd, WM_INPUTLANGCHANGEREQUEST, 0, reinterpret_cast<LPARAM>(targetHkl));
+    // Detect user's configured hotkey in Windows registry (1 = Alt+Shift, 2 = Ctrl+Shift, 3 = Win+Space)
+    DWORD hotkeyType = 1;
+    HKEY hKey = nullptr;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Keyboard Layout\\Toggle", 0, KEY_READ, &hKey) == ERROR_SUCCESS) {
+        wchar_t val[16] = {0};
+        DWORD valSize = sizeof(val);
+        if (RegQueryValueExW(hKey, L"Hotkey", nullptr, nullptr, reinterpret_cast<LPBYTE>(val), &valSize) == ERROR_SUCCESS) {
+            if (val[0] == L'2') hotkeyType = 2;
+            else if (val[0] == L'3') hotkeyType = 3;
+        }
+        RegCloseKey(hKey);
     }
 
-    // 2. Also send synchronous SendMessageTimeoutW to ensure immediate dispatch in standard Win32 apps
-    DWORD_PTR dwResult = 0;
-    SendMessageTimeoutW(focusWnd, WM_INPUTLANGCHANGEREQUEST, 0, reinterpret_cast<LPARAM>(targetHkl),
-                        SMTO_ABORTIFHUNG | SMTO_NORMAL, 30, &dwResult);
+    auto simulateHotkey = [&](DWORD type) {
+        s_simulatingInput.store(true, std::memory_order_release);
+        INPUT in[4] = {};
+        if (type == 2) {
+            // Left Ctrl + Left Shift with hardware scan codes
+            in[0].type = INPUT_KEYBOARD; in[0].ki.wVk = VK_LCONTROL; in[0].ki.wScan = 0x1D;
+            in[1].type = INPUT_KEYBOARD; in[1].ki.wVk = VK_LSHIFT;   in[1].ki.wScan = 0x2A;
+            in[2].type = INPUT_KEYBOARD; in[2].ki.wVk = VK_LSHIFT;   in[2].ki.wScan = 0x2A; in[2].ki.dwFlags = KEYEVENTF_KEYUP;
+            in[3].type = INPUT_KEYBOARD; in[3].ki.wVk = VK_LCONTROL; in[3].ki.wScan = 0x1D; in[3].ki.dwFlags = KEYEVENTF_KEYUP;
+        } else if (type == 3) {
+            // Win + Space with hardware scan codes
+            in[0].type = INPUT_KEYBOARD; in[0].ki.wVk = VK_LWIN;  in[0].ki.wScan = 0x5B;
+            in[1].type = INPUT_KEYBOARD; in[1].ki.wVk = VK_SPACE; in[1].ki.wScan = 0x39;
+            in[2].type = INPUT_KEYBOARD; in[2].ki.wVk = VK_SPACE; in[2].ki.wScan = 0x39; in[2].ki.dwFlags = KEYEVENTF_KEYUP;
+            in[3].type = INPUT_KEYBOARD; in[3].ki.wVk = VK_LWIN;  in[3].ki.wScan = 0x5B; in[3].ki.dwFlags = KEYEVENTF_KEYUP;
+        } else {
+            // Left Alt + Left Shift with hardware scan codes
+            in[0].type = INPUT_KEYBOARD; in[0].ki.wVk = VK_LMENU;  in[0].ki.wScan = 0x38;
+            in[1].type = INPUT_KEYBOARD; in[1].ki.wVk = VK_LSHIFT; in[1].ki.wScan = 0x2A;
+            in[2].type = INPUT_KEYBOARD; in[2].ki.wVk = VK_LSHIFT; in[2].ki.wScan = 0x2A; in[2].ki.dwFlags = KEYEVENTF_KEYUP;
+            in[3].type = INPUT_KEYBOARD; in[3].ki.wVk = VK_LMENU;  in[3].ki.wScan = 0x38; in[3].ki.dwFlags = KEYEVENTF_KEYUP;
+        }
+        SendInput(4, in, sizeof(INPUT));
+        s_simulatingInput.store(false, std::memory_order_release);
+    };
 
-    // 3. Notify Text Services Framework (TSF) & Shell Taskbar so native Windows "ENG" / "РУС" badge updates immediately
-    NotifyTsfAndTaskbar(targetLang, targetHkl);
+    // 1. Primary method: Simulate system hotkey with hardware scan codes
+    // This tells Windows kernel (win32k.sys) to switch the layout, which updates
+    // BOTH the target application AND the native Windows taskbar indicator badge ("ENG" <-> "РУС")!
+    simulateHotkey(hotkeyType);
 
-    // 4. AttachThreadInput and ActivateKeyboardLayout
-    if (targetThreadId != curThreadId) {
-        AttachThreadInput(curThreadId, targetThreadId, TRUE);
-        ActivateKeyboardLayout(targetHkl, KLF_SETFORPROCESS);
-        AttachThreadInput(curThreadId, targetThreadId, FALSE);
-    } else {
-        ActivateKeyboardLayout(targetHkl, KLF_SETFORPROCESS);
-    }
+    // Wait a brief moment for Windows kernel to dispatch the hotkey
+    Sleep(25);
 
-    // 5. Verification: check if target thread layout switched
-    HKL checkHkl = GetKeyboardLayout(targetThreadId);
-    WORD currentLang = LOWORD(reinterpret_cast<DWORD_PTR>(checkHkl));
-
-    bool isMatch = (((targetLang & 0xFF) == 0x19 && (currentLang & 0xFF) == 0x19) ||
-                    ((targetLang & 0xFF) == 0x09 && (currentLang & 0xFF) == 0x09));
-
-    // Fallback: if after 20ms the layout still did not switch (e.g. console, UWP, or elevated app),
-    // simulate system layout hotkey (respecting user's configured hotkey in Windows)
-    if (!isMatch) {
-        Sleep(20);
-        checkHkl = GetKeyboardLayout(targetThreadId);
-        currentLang = LOWORD(reinterpret_cast<DWORD_PTR>(checkHkl));
+    // Verify if layout switched in target thread
+    if (hwnd) {
+        currentHkl = GetKeyboardLayout(targetThreadId);
+        currentLang = LOWORD(reinterpret_cast<DWORD_PTR>(currentHkl));
         isMatch = (((targetLang & 0xFF) == 0x19 && (currentLang & 0xFF) == 0x19) ||
                    ((targetLang & 0xFF) == 0x09 && (currentLang & 0xFF) == 0x09));
+    }
 
-        if (!isMatch) {
-            DWORD hotkeyType = 1; // 1 = Alt+Shift, 2 = Ctrl+Shift
-            HKEY hKey = nullptr;
-            if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Keyboard Layout\\Toggle", 0, KEY_READ, &hKey) == ERROR_SUCCESS) {
-                wchar_t val[16] = {0};
-                DWORD valSize = sizeof(val);
-                if (RegQueryValueExW(hKey, L"Hotkey", nullptr, nullptr, reinterpret_cast<LPBYTE>(val), &valSize) == ERROR_SUCCESS) {
-                    if (val[0] == L'2') hotkeyType = 2;
-                }
-                RegCloseKey(hKey);
-            }
+    // 2. If user has 3+ languages installed and hotkey cycled to a 3rd language, cycle once more to reach target
+    if (!isMatch && hwnd) {
+        simulateHotkey(hotkeyType);
+        Sleep(25);
+        currentHkl = GetKeyboardLayout(targetThreadId);
+        currentLang = LOWORD(reinterpret_cast<DWORD_PTR>(currentHkl));
+        isMatch = (((targetLang & 0xFF) == 0x19 && (currentLang & 0xFF) == 0x19) ||
+                   ((targetLang & 0xFF) == 0x09 && (currentLang & 0xFF) == 0x09));
+    }
 
-            s_simulatingInput.store(true, std::memory_order_release);
-            INPUT inputs[4] = {};
-            if (hotkeyType == 2) {
-                // Ctrl + Shift
-                inputs[0].type = INPUT_KEYBOARD; inputs[0].ki.wVk = VK_CONTROL;
-                inputs[1].type = INPUT_KEYBOARD; inputs[1].ki.wVk = VK_SHIFT;
-                inputs[2].type = INPUT_KEYBOARD; inputs[2].ki.wVk = VK_SHIFT; inputs[2].ki.dwFlags = KEYEVENTF_KEYUP;
-                inputs[3].type = INPUT_KEYBOARD; inputs[3].ki.wVk = VK_CONTROL; inputs[3].ki.dwFlags = KEYEVENTF_KEYUP;
-            } else {
-                // Alt + Shift
-                inputs[0].type = INPUT_KEYBOARD; inputs[0].ki.wVk = VK_MENU;
-                inputs[1].type = INPUT_KEYBOARD; inputs[1].ki.wVk = VK_SHIFT;
-                inputs[2].type = INPUT_KEYBOARD; inputs[2].ki.wVk = VK_SHIFT; inputs[2].ki.dwFlags = KEYEVENTF_KEYUP;
-                inputs[3].type = INPUT_KEYBOARD; inputs[3].ki.wVk = VK_MENU; inputs[3].ki.dwFlags = KEYEVENTF_KEYUP;
-            }
-            SendInput(4, inputs, sizeof(INPUT));
-            s_simulatingInput.store(false, std::memory_order_release);
+    // 3. Fallback: If hotkey was ignored by a stubborn window, directly send WM_INPUTLANGCHANGEREQUEST
+    if (!isMatch && hwnd) {
+        GUITHREADINFO gti = { sizeof(GUITHREADINFO) };
+        HWND focusWnd = hwnd;
+        if (GetGUIThreadInfo(targetThreadId, &gti) && gti.hwndFocus) {
+            focusWnd = gti.hwndFocus;
+        }
+
+        DWORD_PTR dwResult = 0;
+        SendMessageTimeoutW(focusWnd, WM_INPUTLANGCHANGEREQUEST, 0, reinterpret_cast<LPARAM>(targetHkl),
+                            SMTO_ABORTIFHUNG | SMTO_NORMAL, 30, &dwResult);
+        if (focusWnd != hwnd) {
+            SendMessageTimeoutW(hwnd, WM_INPUTLANGCHANGEREQUEST, 0, reinterpret_cast<LPARAM>(targetHkl),
+                                SMTO_ABORTIFHUNG | SMTO_NORMAL, 30, &dwResult);
         }
     }
+
+    // 4. Notify TSF & Taskbar
+    NotifyTsfAndTaskbar(targetLang, targetHkl);
 
     return true;
 }
