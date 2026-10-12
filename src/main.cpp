@@ -60,8 +60,8 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
         return 0;
     }
 
-    // 2. Load configuration from local working directory
-    Config::ConfigManager::Instance().Load();
+    // ConfigManager loads config in its constructor; just ensure instance is initialized
+    (void)Config::ConfigManager::Instance();
 
     // 3. Register message-only window for system tray and system messages
     WNDCLASSEXW wc = { sizeof(WNDCLASSEXW) };

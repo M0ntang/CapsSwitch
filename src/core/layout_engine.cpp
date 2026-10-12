@@ -179,8 +179,23 @@ bool LayoutEngine::SwitchLayout(HWND hwnd, WORD targetLang) {
         s_simulatingInput.store(false, std::memory_order_release);
     };
 
+    // If hwnd provided, get the actual focused thread and window
+    HWND focusWnd = hwnd;
+    if (hwnd) {
+        GUITHREADINFO gti = { sizeof(GUITHREADINFO) };
+        if (GetGUIThreadInfo(targetThreadId, &gti) && gti.hwndFocus) {
+            focusWnd = gti.hwndFocus;
+            targetThreadId = GetWindowThreadProcessId(focusWnd, nullptr);
+            currentHkl = GetKeyboardLayout(targetThreadId);
+            currentLang = LOWORD(reinterpret_cast<DWORD_PTR>(currentHkl));
+            isMatch = (((targetLang & 0xFF) == 0x19 && (currentLang & 0xFF) == 0x19) ||
+                       ((targetLang & 0xFF) == 0x09 && (currentLang & 0xFF) == 0x09));
+            if (isMatch) return true;
+        }
+    }
+
     // 1. Primary method: Simulate system hotkey with hardware scan codes
-    // This tells Windows kernel (win32k.sys) to switch the layout, which updates
+    // This tells Windows kernel (win32k.sys) to switch the layout globally/per-window, which updates
     // BOTH the target application AND the native Windows taskbar indicator badge ("ENG" <-> "РУС")!
     simulateHotkey(hotkeyType);
 
@@ -205,25 +220,28 @@ bool LayoutEngine::SwitchLayout(HWND hwnd, WORD targetLang) {
                    ((targetLang & 0xFF) == 0x09 && (currentLang & 0xFF) == 0x09));
     }
 
-    // 3. Fallback: If hotkey was ignored by a stubborn window, directly send WM_INPUTLANGCHANGEREQUEST
+    // 3. Fallback: If hotkey was ignored (e.g. elevated window, legacy console, custom app),
+    // post WM_INPUTLANGCHANGEREQUEST directly to both focus window and top-level window
     if (!isMatch && hwnd) {
-        GUITHREADINFO gti = { sizeof(GUITHREADINFO) };
-        HWND focusWnd = hwnd;
-        if (GetGUIThreadInfo(targetThreadId, &gti) && gti.hwndFocus) {
-            focusWnd = gti.hwndFocus;
+        PostMessageW(focusWnd, WM_INPUTLANGCHANGEREQUEST, INPUTLANGCHANGE_SYSCHARSET, reinterpret_cast<LPARAM>(targetHkl));
+        if (focusWnd != hwnd) {
+            PostMessageW(hwnd, WM_INPUTLANGCHANGEREQUEST, INPUTLANGCHANGE_SYSCHARSET, reinterpret_cast<LPARAM>(targetHkl));
         }
 
         DWORD_PTR dwResult = 0;
-        SendMessageTimeoutW(focusWnd, WM_INPUTLANGCHANGEREQUEST, 0, reinterpret_cast<LPARAM>(targetHkl),
+        SendMessageTimeoutW(focusWnd, WM_INPUTLANGCHANGEREQUEST, INPUTLANGCHANGE_SYSCHARSET, reinterpret_cast<LPARAM>(targetHkl),
                             SMTO_ABORTIFHUNG | SMTO_NORMAL, 30, &dwResult);
         if (focusWnd != hwnd) {
-            SendMessageTimeoutW(hwnd, WM_INPUTLANGCHANGEREQUEST, 0, reinterpret_cast<LPARAM>(targetHkl),
+            SendMessageTimeoutW(hwnd, WM_INPUTLANGCHANGEREQUEST, INPUTLANGCHANGE_SYSCHARSET, reinterpret_cast<LPARAM>(targetHkl),
                                 SMTO_ABORTIFHUNG | SMTO_NORMAL, 30, &dwResult);
         }
     }
 
     // 4. Notify TSF & Taskbar
     NotifyTsfAndTaskbar(targetLang, targetHkl);
+
+    // Activate keyboard layout for calling thread as well
+    ActivateKeyboardLayout(targetHkl, KLF_SETFORPROCESS);
 
     return true;
 }

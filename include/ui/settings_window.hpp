@@ -28,7 +28,7 @@ private:
     void DrawHeader(HDC hdc);
     void DrawSettingsCard(HDC hdc);
     void DrawExclusionsCard(HDC hdc);
-    void DrawFooter(HDC hdc);
+
     void DrawToggle(HDC hdc, int x, int y, bool state, const wchar_t* title, const wchar_t* subtitle, RECT& hitRect);
 
     void UpdateControls();

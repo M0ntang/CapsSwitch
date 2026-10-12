@@ -28,6 +28,9 @@ private:
     std::atomic<bool> isPasswordFocused_{ false };
     bool wasPasswordFocused_ = false;
     bool comInitialized_ = false;
+    HWND lastCheckedHwnd_ = nullptr;
+    DWORD lastCheckTick_ = 0;
+    bool cachedIsPassword_ = false;
 };
 
 } // namespace Platform

@@ -5,6 +5,7 @@
 #include <dwmapi.h>
 #include <uxtheme.h>
 #include <commctrl.h>
+#include <windowsx.h>
 
 #ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
 #define DWMWA_USE_IMMERSIVE_DARK_MODE 20
@@ -404,7 +405,7 @@ LRESULT SettingsWindow::HandleMessage(HWND hWnd, UINT msg, WPARAM wParam, LPARAM
         return 0;
     }
     case WM_LBUTTONDOWN: {
-        POINT pt = { LOWORD(lParam), HIWORD(lParam) };
+        POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
         auto& cfg = Config::ConfigManager::Instance().GetMutable();
         bool changed = false;
 

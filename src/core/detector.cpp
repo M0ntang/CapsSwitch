@@ -56,8 +56,8 @@ static const std::unordered_set<std::wstring> s_commonEnWords = {
     L"path", L"font", L"size", L"card", L"type", L"play", L"send", L"read", L"write", L"menu"
 };
 
-// Impossible bigrams in Russian (standard words never contain these)
-static const wchar_t* s_impossibleRuBigrams[] = {
+// Impossible n-grams in Russian (standard words never contain these sequences)
+static const wchar_t* s_impossibleRuNgrams[] = {
     L"ъб", L"ъв", L"ъг", L"ъд", L"ъж", L"ъз", L"ък", L"ъл", L"ъм", L"ън", L"ъп", L"ър", L"ъс", L"ът", L"ъф", L"ъх", L"ъц", L"ъч", L"ъш", L"ъщ",
     L"ъа", L"ъо", L"ъу", L"ъы", L"ъэ", L"ъи",
     L"аъ", L"еъ", L"ёъ", L"иъ", L"оъ", L"уъ", L"ыъ", L"эъ", L"юъ", L"яъ",
@@ -150,9 +150,9 @@ bool Detector::IsImpossibleRussian(const std::wstring& word) const {
         return true;
     }
 
-    // Check impossible bigrams
-    for (const auto* bigram : s_impossibleRuBigrams) {
-        if (lower.find(bigram) != std::wstring::npos) {
+    // Check impossible n-grams
+    for (const auto* ngram : s_impossibleRuNgrams) {
+        if (lower.find(ngram) != std::wstring::npos) {
             return true;
         }
     }
@@ -189,13 +189,13 @@ bool Detector::IsImpossibleEnglish(const std::wstring& word) const {
         }
     }
 
-    // Rare impossible English letter pairs that occur when Russian is typed on English keys
-    static const wchar_t* s_impossibleEnBigrams[] = {
+    // Impossible English n-grams that typically occur when Russian is typed on English layout
+    static const wchar_t* s_impossibleEnNgrams[] = {
         L"jx", L"jq", L"jz", L"vf", L"vg", L"vj", L"vk", L"vm", L"vn", L"vp", L"vr", L"vs", L"vt", L"vu", L"vx", L"vz",
         L"gk", L"kj", L"wbb", L"hf", L"jn", L"gth", L"trk", L"ckj", L"jdj", L"ldj", L"jqy", L"scnh", L"cgh", L"ghb", L"juj", L"jcn"
     };
-    for (const auto* bigram : s_impossibleEnBigrams) {
-        if (lower.find(bigram) != std::wstring::npos) {
+    for (const auto* ngram : s_impossibleEnNgrams) {
+        if (lower.find(ngram) != std::wstring::npos) {
             return true;
         }
     }
@@ -240,7 +240,7 @@ DetectedSwitch Detector::EvaluateWord(wchar_t delimiter) {
             (ch >= L'а' && ch <= L'я') || (ch >= L'А' && ch <= L'Я') || ch == L'ё' || ch == L'Ё' ||
             ch == L'[' || ch == L']' || ch == L';' || ch == L'\'' || ch == L',' || ch == L'.' || ch == L'`') {
             hasLetters = true;
-        } else if (ch >= L'0' && ch <= L'9' || ch == L'_' || ch == L'\\' || ch == L'@' || ch == L'#') {
+        } else if ((ch >= L'0' && ch <= L'9') || ch == L'_' || ch == L'\\' || ch == L'@' || ch == L'#') {
             return result; // Code or number
         }
     }
@@ -352,8 +352,9 @@ DetectedSwitch Detector::EvaluateWord(wchar_t delimiter) {
 }
 
 DetectedSwitch Detector::CheckImmediate() {
-    DetectedSwitch result;
-    return result;
+    // Reserved for future: real-time detection of impossible letter sequences
+    // during typing (before word delimiter is pressed)
+    return DetectedSwitch{};
 }
 
 } // namespace Core

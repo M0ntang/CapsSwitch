@@ -25,9 +25,11 @@ PasswordGuard::~PasswordGuard() {
 
 bool PasswordGuard::Initialize() {
     HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-    if (SUCCEEDED(hr) || hr == RPC_E_CHANGED_MODE) {
+    if (SUCCEEDED(hr)) {
         comInitialized_ = true;
     }
+    // If hr == RPC_E_CHANGED_MODE, COM is already initialized on this thread;
+    // we must NOT call CoUninitialize() for it, so leave comInitialized_ = false.
 
     hr = CoCreateInstance(
         s_CLSID_CUIAutomation,
@@ -111,6 +113,7 @@ bool PasswordGuard::CheckAndUpdateFocus(HWND foregroundHwnd) {
         isPasswordFocused_.store(false, std::memory_order_relaxed);
         wasPasswordFocused_ = false;
         s_lastPasswordHwnd = nullptr;
+        lastCheckedHwnd_ = nullptr;
         return false;
     }
 
@@ -121,15 +124,26 @@ bool PasswordGuard::CheckAndUpdateFocus(HWND foregroundHwnd) {
         hFocus = gti.hwndFocus;
     }
 
+    DWORD nowTick = GetTickCount();
     bool isPassword = false;
 
-    // 1. Precise Win32 check
-    if (CheckWin32Password(foregroundHwnd, threadId)) {
-        isPassword = true;
-    }
-    // 2. Microsoft UI Automation check for modern XAML / Chromium / Electron controls
-    else if (CheckUiaPassword()) {
-        isPassword = true;
+    // Fast path: if focused HWND hasn't changed and check was performed recently (< 300ms), reuse cached result
+    if (hFocus == lastCheckedHwnd_ && (nowTick - lastCheckTick_ < 300)) {
+        isPassword = cachedIsPassword_;
+    } else {
+        lastCheckedHwnd_ = hFocus;
+        lastCheckTick_ = nowTick;
+
+        // 1. Precise Win32 check
+        if (CheckWin32Password(foregroundHwnd, threadId)) {
+            isPassword = true;
+        }
+        // 2. Microsoft UI Automation check for modern XAML / Chromium / Electron controls
+        else if (CheckUiaPassword()) {
+            isPassword = true;
+        }
+
+        cachedIsPassword_ = isPassword;
     }
 
     isPasswordFocused_.store(isPassword, std::memory_order_relaxed);

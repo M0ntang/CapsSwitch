@@ -264,9 +264,11 @@ void HookManager::ProcessKeyEvent(const RawKeyEvent& ev) {
     HWND fg = GetForegroundWindow();
     if (!fg) return;
 
+    const auto& cfg = Config::ConfigManager::Instance().Get();
+
     // Check process exclusion list
     std::wstring procName = Platform::GetProcessNameByHwnd(fg);
-    if (Config::ConfigManager::Instance().Get().IsExcluded(procName)) {
+    if (cfg.IsExcluded(procName)) {
         Detector::Instance().Reset();
         return;
     }
@@ -306,7 +308,7 @@ void HookManager::ProcessKeyEvent(const RawKeyEvent& ev) {
     else if (isTab) delimChar = L'\t';
 
     if (delimChar != 0) {
-        if (Config::ConfigManager::Instance().Get().autoSwitch) {
+        if (cfg.autoSwitch) {
             DetectedSwitch sw = Detector::Instance().EvaluateWord(delimChar);
             if (sw.shouldSwitch) {
                 // Erase previous word + delimiter
@@ -343,7 +345,7 @@ void HookManager::ProcessKeyEvent(const RawKeyEvent& ev) {
         wchar_t ch = unicodeBuf[0];
         // Check sentence end punctuation delimiters (like !, ?)
         if (ch == L'!' || ch == L'?' || ch == L':') {
-            if (Config::ConfigManager::Instance().Get().autoSwitch) {
+            if (cfg.autoSwitch) {
                 DetectedSwitch sw = Detector::Instance().EvaluateWord(ch);
                 if (sw.shouldSwitch) {
                     size_t eraseCount = sw.originalWord.length() + 1;

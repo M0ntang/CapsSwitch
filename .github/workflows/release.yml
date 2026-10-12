@@ -39,7 +39,7 @@ jobs:
             src/ui/settings_window.cpp `
             res/resource.o `
             -o CapsSwitch.exe `
-            -luser32 -lkernel32 -lgdi32 -luxtheme -ldwmapi -lole32 -loleaut32 -luiautomationcore -lcomctl32 -ladvapi32 -lshell32 -lpsapi
+            -luser32 -lkernel32 -lgdi32 -luxtheme -ldwmapi -lole32 -loleaut32 -luiautomationcore -lcomctl32 -ladvapi32 -lshell32 -lpsapi -luuid
 
       - name: Verify Executable
         run: |

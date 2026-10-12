@@ -8,8 +8,8 @@ IDI_APP_ICON ICON "app.ico"
 CREATEPROCESS_MANIFEST_RESOURCE_ID RT_MANIFEST "app.manifest"
 
 VS_VERSION_INFO VERSIONINFO
-FILEVERSION     1,0,0,0
-PRODUCTVERSION  1,0,0,0
+FILEVERSION     1,0,4,0
+PRODUCTVERSION  1,0,4,0
 FILEFLAGSMASK   VS_FFI_FILEFLAGSMASK
 #ifdef _DEBUG
 FILEFLAGS       VS_FF_DEBUG
@@ -26,12 +26,12 @@ BEGIN
         BEGIN
             VALUE "CompanyName",      "CapsSwitch Project"
             VALUE "FileDescription",  "CapsSwitch - Lightweight Portable Keyboard Layout Switcher"
-            VALUE "FileVersion",      "1.0.0.0"
+            VALUE "FileVersion",      "1.0.4.0"
             VALUE "InternalName",     "CapsSwitch"
             VALUE "LegalCopyright",   "Copyright (c) 2026"
             VALUE "OriginalFilename", "CapsSwitch.exe"
             VALUE "ProductName",      "CapsSwitch"
-            VALUE "ProductVersion",   "1.0.0.0"
+            VALUE "ProductVersion",   "1.0.4.0"
         END
     END
     BLOCK "VarFileInfo"
