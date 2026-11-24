@@ -3,14 +3,64 @@
 #include "platform/win32_utils.hpp"
 #include <unordered_set>
 #include <algorithm>
+#include <cwchar>
 
 namespace Core {
+
+namespace {
+
+bool IsCyrillicLetter(wchar_t ch) {
+    return (ch >= L'а' && ch <= L'я') || (ch >= L'А' && ch <= L'Я') || ch == L'ё' || ch == L'Ё';
+}
+
+bool IsLatinLetter(wchar_t ch) {
+    return (ch >= L'a' && ch <= L'z') || (ch >= L'A' && ch <= L'Z');
+}
+
+bool IsRussianVowelChar(wchar_t lower) {
+    return lower == L'а' || lower == L'е' || lower == L'ё' || lower == L'и' ||
+           lower == L'о' || lower == L'у' || lower == L'ы' || lower == L'э' ||
+           lower == L'ю' || lower == L'я';
+}
+
+bool IsEnglishVowelChar(wchar_t lower) {
+    return lower == L'a' || lower == L'e' || lower == L'i' ||
+           lower == L'o' || lower == L'u' || lower == L'y';
+}
+
+bool IsEnMappedLetterPunct(wchar_t ch) {
+    return ch == L'[' || ch == L']' || ch == L'{' || ch == L'}' ||
+           ch == L';' || ch == L':' || ch == L'\'' || ch == L'\"' ||
+           ch == L',' || ch == L'<' || ch == L'.' || ch == L'>' ||
+           ch == L'`' || ch == L'~';
+}
+
+bool IsTrailingPunct(wchar_t ch) {
+    return ch == L'.' || ch == L',' || ch == L';' || ch == L':' ||
+           ch == L'!' || ch == L'?' || ch == L'/' || ch == L'&' ||
+           ch == L'^' || ch == L'$';
+}
+
+bool IsRuLayoutChar(wchar_t ch) {
+    return (ch >= L'а' && ch <= L'я') || ch == L'ё' ||
+           ch == L',' || ch == L'.' || ch == L';' || ch == L':' ||
+           ch == L'\'' || ch == L'\"' || ch == L'[' || ch == L']' ||
+           ch == L'{' || ch == L'}' || ch == L'`' || ch == L'~' ||
+           ch == L'!' || ch == L'?';
+}
+
+bool ContainsChar(const wchar_t* set, wchar_t ch) {
+    return wcschr(set, ch) != nullptr;
+}
+
+} // namespace
 
 static const std::unordered_set<std::wstring> s_commonRuWords = {
     // Basic vocabulary & common Russian words
     L"привет", L"как", L"дела", L"что", L"это", L"быть", L"весь", L"этот", L"один", L"такой",
     L"только", L"сегодня", L"сейчас", L"когда", L"время", L"дело", L"жизнь", L"день", L"рука",
-    L"слово", L"место", L"лицо", L"друг", L"глаз", L"дом", L"сторона", L"работа", L"город",
+    L"руки", L"руке", L"рукой", L"руку", L"рук",
+    L"слово", L"место", L"лицо", L"друг", L"глаз", L"дом", L"дома", L"дому", L"сторона", L"работа", L"город",
     L"конец", L"дверь", L"земля", L"голова", L"вдруг", L"видеть", L"пойти", L"стоять", L"думать",
     L"спросить", L"жить", L"смотреть", L"понять", L"иметь", L"сделать", L"сидеть", L"взять",
     L"хотеть", L"любить", L"говорить", L"знать", L"стать", L"сказать", L"мочь", L"человек",
@@ -28,10 +78,19 @@ static const std::unordered_set<std::wstring> s_commonRuWords = {
     L"выделенный", L"фрагмент", L"быстрый", L"быстро", L"быстрому", L"двойной", L"двойному", L"клик",
     L"включена", L"включить", L"последнее", L"последний", L"раскладка", L"раскладку", L"строка",
     L"он", L"она", L"они", L"оно", L"мы", L"вы", L"ты", L"я", L"мне", L"тебе", L"ему", L"ей",
-    L"нам", L"вам", L"им", L"меня", L"тебя", L"его", L"ее", L"нас", L"вас", L"их",
+    L"нам", L"вам", L"им", L"меня", L"тебя", L"его", L"ее", L"её", L"нас", L"вас", L"их",
     L"да", L"нет", L"ли", L"же", L"бы", L"не", L"ни", L"но", L"или", L"если", L"хотя",
     L"чтобы", L"потому", L"так", L"где", L"кто", L"чем", L"кем", L"кому", L"чему", L"тоже",
-    L"еще", L"ещё", L"уже", L"все", L"всё", L"всех", L"всем", L"всей", L"всеми", L"сам", L"сама"
+    L"еще", L"ещё", L"уже", L"все", L"всё", L"всех", L"всем", L"всей", L"всеми", L"сам", L"сама",
+    // Short words, prepositions, particles & verbs ending in ю/б/ж
+    L"на", L"за", L"по", L"от", L"до", L"из", L"об", L"ко", L"со", L"во", L"без", L"для",
+    L"при", L"про", L"под", L"над", L"вот", L"тот", L"раз", L"два", L"три", L"год", L"мир",
+    L"кот", L"сон", L"лес", L"чай", L"хлеб", L"стол", L"окно", L"вода", L"еда", L"мясо",
+    L"зуб", L"дуб", L"гриб", L"чтоб", L"муж", L"лоб", L"ночь", L"учу",
+    L"было", L"будет", L"есть", L"могу", L"хочу", L"знаю", L"думаю", L"делаю", L"люблю",
+    L"вижу", L"иду", L"жду", L"сплю", L"читаю", L"пишу", L"играю", L"мою", L"твою", L"свою",
+    L"чет", L"хреново", L"короче", L"посмотри", L"потести", L"проведи", L"проверки",
+    L"исправляй", L"проверяй", L"делай", L"пока", L"давай", L"прикольно", L"нормально"
 };
 
 static const std::unordered_set<std::wstring> s_commonEnWords = {
@@ -53,22 +112,69 @@ static const std::unordered_set<std::wstring> s_commonEnWords = {
     L"true", L"false", L"null", L"nullptr", L"undefined", L"object", L"number", L"boolean",
     L"world", L"please", L"thanks", L"thank", L"welcome", L"sorry", L"yes", L"help", L"name",
     L"user", L"open", L"save", L"line", L"item", L"mode", L"data", L"task", L"port", L"view",
-    L"path", L"font", L"size", L"card", L"type", L"play", L"send", L"read", L"write", L"menu"
+    L"path", L"font", L"size", L"card", L"type", L"play", L"send", L"read", L"write", L"menu",
+    // Short words, abbreviations & collision guards
+    L"am", L"is", L"are", L"was", L"were", L"been", L"has", L"had", L"did", L"does",
+    L"vs", L"dj", L"ok", L"hi", L"oh", L"ah", L"ha", L"ye", L"tot", L"herb",
+    L"why", L"sky", L"fly", L"try", L"dry", L"cry", L"buy", L"guy", L"gym", L"sync",
+    L"photo", L"radio", L"laptop", L"keyboard", L"computer", L"program", L"config", L"docker", L"sudo",
+    L"vulnerable", L"vulture", L"vulgar", L"chevron", L"crowd", L"newton", L"bowtie", L"showcase",
+    L"cowboy", L"hawking", L"viewpoint", L"snowfall", L"kevlar",
+    L"kiev", L"civ", L"pov", L"suv",
+    // Common contractions
+    L"i'm", L"i've", L"i'll", L"i'd", L"you're", L"you've", L"you'll", L"you'd",
+    L"he's", L"he'll", L"he'd", L"she's", L"she'll", L"she'd", L"it's", L"it'll", L"it'd",
+    L"we're", L"we've", L"we'll", L"we'd", L"they're", L"they've", L"they'll", L"they'd",
+    L"that's", L"what's", L"who's", L"where's", L"when's", L"why's", L"how's",
+    L"here's", L"there's", L"let's", L"don't", L"doesn't", L"didn't", L"won't", L"wouldn't",
+    L"can't", L"couldn't", L"shouldn't", L"isn't", L"aren't", L"wasn't", L"weren't",
+    L"hasn't", L"haven't", L"hadn't", L"mustn't", L"needn't", L"ain't", L"y'all", L"o'clock",
+    // Tech, dev & shell tokens
+    L"http", L"https", L"html", L"css", L"json", L"xml", L"yaml", L"toml", L"sql", L"mysql",
+    L"pgsql", L"sqlite", L"cmake", L"gcc", L"clang", L"llvm", L"github", L"gitlab", L"linux",
+    L"macos", L"win32", L"utf8", L"utf16", L"api", L"sdk", L"cli", L"gui", L"tui", L"ide",
+    L"url", L"uri", L"dns", L"tcp", L"udp", L"ssh", L"tls", L"ssl", L"jwt", L"oauth",
+    L"rest", L"grpc", L"crud", L"mvvm", L"mvc", L"hwnd", L"hkl", L"uia", L"com", L"dll",
+    L"exe", L"lib", L"obj", L"pdb", L"src", L"bin", L"tmp", L"var", L"etc", L"usr", L"dev",
+    L"devs", L"rev", L"revs", L"nav", L"div", L"divs", L"gov", L"govt", L"fav", L"favs", L"luv",
+    L"env", L"prev", L"argv", L"recv", L"srv", L"drv", L"csv", L"tsv", L"wav", L"mov",
+    L"mkv", L"flv", L"wmv", L"dvd", L"vcd", L"svg", L"vga", L"hevc", L"jvm", L"kvm", L"lvm",
+    L"nvme", L"av", L"cv", L"uv", L"ev",
+    L"char", L"bool", L"int", L"long", L"enum", L"impl", L"func", L"proc", L"async", L"await",
+    L"yield", L"static", L"union", L"trait", L"match", L"using", L"typedef", L"sizeof", L"typeof",
+    L"malloc", L"free", L"printf", L"scanf", L"cin", L"cout", L"endl", L"std", L"vec", L"str",
+    L"len", L"min", L"max", L"abs", L"pow", L"sqrt", L"sin", L"cos", L"tan", L"log", L"exp",
+    L"init", L"main", L"spec", L"mock", L"stub", L"diff", L"repo", L"git", L"npm", L"npx",
+    L"pip", L"venv", L"conda", L"rust", L"cargo", L"crate", L"node", L"deno", L"bun", L"react",
+    L"vue", L"next", L"vite", L"tailwind", L"eslint", L"prettier", L"vscode", L"msvc", L"mingw",
+    L"w64devkit", L"powershell", L"pwsh", L"cmd", L"bash", L"zsh", L"wsl", L"id", L"ip", L"os",
+    L"db", L"ui", L"ux", L"js", L"ts", L"py", L"hr", L"pr", L"mr", L"ms", L"dr", L"tv", L"pc",
+    L"hd", L"kb", L"mb", L"gb", L"tb", L"uk", L"eu", L"ru", L"en", L"io", L"ai", L"ml",
+    L"ci", L"cd", L"ls", L"rm", L"cp", L"mv", L"ps", L"sh", L"faq", L"iraq", L"qatar",
+    L"lengths", L"strengths", L"downstream", L"postscript", L"matchstick", L"catchphrase", L"twelfths"
 };
 
 // Impossible n-grams in Russian (standard words never contain these sequences)
-static const wchar_t* s_impossibleRuNgrams[] = {
+static const wchar_t* const s_impossibleRuNgrams[] = {
     L"ъб", L"ъв", L"ъг", L"ъд", L"ъж", L"ъз", L"ък", L"ъл", L"ъм", L"ън", L"ъп", L"ър", L"ъс", L"ът", L"ъф", L"ъх", L"ъц", L"ъч", L"ъш", L"ъщ",
     L"ъа", L"ъо", L"ъу", L"ъы", L"ъэ", L"ъи",
     L"аъ", L"еъ", L"ёъ", L"иъ", L"оъ", L"уъ", L"ыъ", L"эъ", L"юъ", L"яъ",
     L"ьа", L"ьу", L"ьы", L"ьэ",
-    L"жы", L"шы", L"чя", L"щя", L"чю", L"щю",
-    L"ъъ", L"ьь", L"ъь", L"ьъ", L"ыы", L"йй",
+    L"аь", L"еь", L"ёь", L"иь", L"оь", L"уь", L"ыь", L"эь", L"юь", L"яь", L"йь",
+    L"аы", L"еы", L"ёы", L"иы", L"оы", L"уы", L"ыы", L"эы", L"юы", L"яы", L"йы",
+    L"гы", L"жы", L"шы", L"щы", L"чы", L"чя", L"щя", L"чю", L"щю",
+    L"гь", L"хь",
+    L"эы", L"эю", L"эя", L"эё", L"ээ",
+    L"щб", L"щв", L"щг", L"щд", L"щж", L"щз", L"щй", L"щк", L"щл", L"щм", L"щп", L"щр", L"щс", L"щт", L"щф", L"щх", L"щц", L"щч", L"щш", L"щщ",
+    L"фб", L"фв", L"фг", L"фд", L"фж", L"фз", L"фй", L"фп", L"фх", L"фц", L"фч", L"фш", L"фщ", L"фэ", L"фю", L"фя",
+    L"шб", L"шг", L"шд", L"шж", L"шз", L"шф", L"шх", L"шц", L"шч", L"шщ", L"шя", L"шй", L"шш",
+    L"гж", L"гз", L"гй", L"гп", L"гф", L"гх", L"гц", L"гш", L"гщ", L"гя",
+    L"ъъ", L"ьь", L"ъь", L"ьъ", L"йй",
     L"цш", L"ддщ", L"ьф", L"кщь", L"ащк", L"ршы", L"фму", L"нщг", L"гшд", L"ыек", L"мфд", L"огы", L"цщ", L"сщв"
 };
 
 // Common Russian prefixes for morphological analysis
-static const wchar_t* s_commonRuPrefixes[] = {
+static const wchar_t* const s_commonRuPrefixes[] = {
     L"при", L"пре", L"про", L"пере", L"под", L"пред", L"по", L"от", L"до", L"за",
     L"на", L"над", L"не", L"ни", L"раз", L"рас", L"без", L"бес", L"вы", L"со", L"из", L"ис"
 };
@@ -82,11 +188,13 @@ Detector::Detector() {}
 
 void Detector::OnChar(wchar_t ch) {
     if (ch >= 32) {
+        std::lock_guard<std::mutex> lock(mutex_);
         currentBuffer_.push_back(ch);
     }
 }
 
 void Detector::OnBackspace() {
+    std::lock_guard<std::mutex> lock(mutex_);
     if (!currentBuffer_.empty()) {
         currentBuffer_.pop_back();
     } else if (lastDelimiter_ != 0) {
@@ -99,19 +207,32 @@ void Detector::OnBackspace() {
 }
 
 void Detector::Reset() {
+    std::lock_guard<std::mutex> lock(mutex_);
     currentBuffer_.clear();
     lastWord_.clear();
     lastDelimiter_ = 0;
 }
 
+std::wstring Detector::GetCurrentBuffer() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return currentBuffer_;
+}
+
 std::wstring Detector::GetLastWordOrCurrent() const {
+    std::lock_guard<std::mutex> lock(mutex_);
     if (!currentBuffer_.empty()) {
         return currentBuffer_;
     }
     return lastWord_;
 }
 
+wchar_t Detector::GetLastDelimiter() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return lastDelimiter_;
+}
+
 void Detector::SetLastWord(const std::wstring& word, wchar_t delim) {
+    std::lock_guard<std::mutex> lock(mutex_);
     lastWord_ = word;
     lastDelimiter_ = delim;
     currentBuffer_.clear();
@@ -119,10 +240,7 @@ void Detector::SetLastWord(const std::wstring& word, wchar_t delim) {
 
 bool Detector::HasRussianVowels(const std::wstring& word) const {
     for (wchar_t ch : word) {
-        wchar_t lower = ::towlower(ch);
-        if (lower == L'а' || lower == L'е' || lower == L'ё' || lower == L'и' ||
-            lower == L'о' || lower == L'у' || lower == L'ы' || lower == L'э' ||
-            lower == L'ю' || lower == L'я') {
+        if (IsRussianVowelChar(Platform::ToLowerChar(ch))) {
             return true;
         }
     }
@@ -131,9 +249,7 @@ bool Detector::HasRussianVowels(const std::wstring& word) const {
 
 bool Detector::HasEnglishVowels(const std::wstring& word) const {
     for (wchar_t ch : word) {
-        wchar_t lower = ::towlower(ch);
-        if (lower == L'a' || lower == L'e' || lower == L'i' ||
-            lower == L'o' || lower == L'u') {
+        if (IsEnglishVowelChar(Platform::ToLowerChar(ch))) {
             return true;
         }
     }
@@ -150,10 +266,35 @@ bool Detector::IsImpossibleRussian(const std::wstring& word) const {
         return true;
     }
 
+    // Cannot start with Й unless followed by О or Е (йод, йогурт, йети)
+    if (first == L'й' && lower.length() >= 2 && lower[1] != L'о' && lower[1] != L'е') {
+        return true;
+    }
+
+    // Cannot start with Ц + consonant other than В (цвет, цвести)
+    if (first == L'ц' && lower.length() >= 2 && !IsRussianVowelChar(lower[1]) && lower[1] != L'в') {
+        return true;
+    }
+
     // Check impossible n-grams
     for (const auto* ngram : s_impossibleRuNgrams) {
         if (lower.find(ngram) != std::wstring::npos) {
             return true;
+        }
+    }
+
+    // 5+ consecutive Russian consonants are virtually impossible (e.g. контрвстреча is 5, English on RU hits this often)
+    int consecutiveConsonants = 0;
+    for (wchar_t ch : lower) {
+        if ((ch >= L'а' && ch <= L'я') || ch == L'ё') {
+            if (IsRussianVowelChar(ch) || ch == L'ь' || ch == L'ъ') {
+                consecutiveConsonants = 0;
+            } else {
+                consecutiveConsonants++;
+                if (consecutiveConsonants >= 5) {
+                    return true;
+                }
+            }
         }
     }
 
@@ -169,29 +310,85 @@ bool Detector::IsImpossibleEnglish(const std::wstring& word) const {
     if (word.empty()) return false;
     std::wstring lower = Platform::ToLower(word);
 
-    // English word of length >= 3 without vowels is impossible
+    // English word of length >= 3 without vowels (including 'y') is impossible
     if (lower.length() >= 3 && !HasEnglishVowels(lower)) {
         return true;
     }
 
-    // Check 4+ consecutive consonants in English
+    // 5+ consecutive consonants in English (y counted as vowel; avoids false hits on abstract/strength/workspace)
     int consecutiveConsonants = 0;
     for (wchar_t ch : lower) {
         if (ch >= L'a' && ch <= L'z') {
-            if (ch == L'a' || ch == L'e' || ch == L'i' || ch == L'o' || ch == L'u') {
+            if (IsEnglishVowelChar(ch)) {
                 consecutiveConsonants = 0;
             } else {
                 consecutiveConsonants++;
-                if (consecutiveConsonants >= 4) {
+                if (consecutiveConsonants >= 5) {
                     return true;
                 }
             }
         }
     }
 
+    // Phonotactic checks on Latin-only stem
+    const size_t len = lower.length();
+    if (len >= 2) {
+        // 'x' at index 0 is only followed by vowels or 'm'/'l' (xml, xsl)
+        if (lower[0] == L'x' && !IsEnglishVowelChar(lower[1]) && lower[1] != L'm' && lower[1] != L'l') {
+            return true;
+        }
+        // 'k' at index 0 is only followed by vowels or 'n'/'l'/'r'
+        if (lower[0] == L'k' && !IsEnglishVowelChar(lower[1]) && lower[1] != L'n' && lower[1] != L'l' && lower[1] != L'r') {
+            return true;
+        }
+        // 'w' at index 0 is only followed by vowels or 'h'/'r'
+        if (lower[0] == L'w' && !IsEnglishVowelChar(lower[1]) && lower[1] != L'h' && lower[1] != L'r') {
+            return true;
+        }
+        // 'h' + 't' at index 0 (only http/https/html, already in common dict)
+        if (lower[0] == L'h' && lower[1] == L't') {
+            return true;
+        }
+    }
+
+    for (size_t i = 0; i < len; ++i) {
+        wchar_t ch = lower[i];
+        wchar_t next = (i + 1 < len) ? lower[i + 1] : 0;
+
+        // 'j' ('о' on RU) never precedes a consonant and never ends a word (except 2-char "dj")
+        if (ch == L'j') {
+            if (next == 0 && len >= 3) return true;
+            if (next != 0 && next >= L'a' && next <= L'z' && !IsEnglishVowelChar(next)) return true;
+        }
+        // 'q' ('й' on RU) in English must be followed by 'u'
+        if (ch == L'q' && next != L'u') {
+            return true;
+        }
+        // 'v' ('м' on RU) never ends a word and never precedes impossible consonants
+        if (ch == L'v') {
+            if (next == 0) return true;
+            if (next >= L'a' && next <= L'z' && !IsEnglishVowelChar(next) &&
+                ContainsChar(L"bfjkpqtvwxz", next)) {
+                return true;
+            }
+        }
+        // 'w' ('ц' on RU) never precedes j/q/v/x/z
+        if (ch == L'w' && ContainsChar(L"jqvxz", next)) {
+            return true;
+        }
+    }
+
+    // 'z' ('я' on RU) at end of word after a consonant other than 't' (waltz) or 'z' (jazz)
+    if (len >= 2 && lower[len - 1] == L'z') {
+        wchar_t prev = lower[len - 2];
+        if (prev >= L'a' && prev <= L'z' && !IsEnglishVowelChar(prev) && prev != L't' && prev != L'z') {
+            return true;
+        }
+    }
+
     // Impossible English n-grams that typically occur when Russian is typed on English layout
-    static const wchar_t* s_impossibleEnNgrams[] = {
-        L"jx", L"jq", L"jz", L"vf", L"vg", L"vj", L"vk", L"vm", L"vn", L"vp", L"vr", L"vs", L"vt", L"vu", L"vx", L"vz",
+    static const wchar_t* const s_impossibleEnNgrams[] = {
+        L"jx", L"jq", L"jz", L"vf", L"vg", L"vj", L"vk", L"vm", L"vn", L"vp", L"vt", L"vx", L"vz",
         L"gk", L"kj", L"wbb", L"hf", L"jn", L"gth", L"trk", L"ckj", L"jdj", L"ldj", L"jqy", L"scnh", L"cgh", L"ghb", L"juj", L"jcn"
     };
     for (const auto* ngram : s_impossibleEnNgrams) {
@@ -213,6 +410,26 @@ bool Detector::MatchesRussianMorphology(const std::wstring& word) const {
     return false;
 }
 
+bool Detector::IsEnglishContractionOrPossessive(const std::wstring& lower) const {
+    size_t apos = lower.find(L'\'');
+    if (apos == std::wstring::npos || apos == 0 || apos + 1 >= lower.length()) {
+        return false;
+    }
+    if (lower.find(L'\'', apos + 1) != std::wstring::npos) {
+        return false;
+    }
+    std::wstring base = lower.substr(0, apos);
+    std::wstring suffix = lower.substr(apos + 1);
+    if (suffix != L"s" && suffix != L"t" && suffix != L"m" && suffix != L"d" &&
+        suffix != L"re" && suffix != L"ve" && suffix != L"ll") {
+        return false;
+    }
+    for (wchar_t ch : base) {
+        if (ch < L'a' || ch > L'z') return false;
+    }
+    return !IsImpossibleEnglish(base);
+}
+
 bool Detector::IsCommonRussianWord(const std::wstring& word) const {
     return s_commonRuWords.find(Platform::ToLower(word)) != s_commonRuWords.end();
 }
@@ -222,9 +439,11 @@ bool Detector::IsCommonEnglishWord(const std::wstring& word) const {
 }
 
 DetectedSwitch Detector::EvaluateWord(wchar_t delimiter) {
+    std::lock_guard<std::mutex> lock(mutex_);
     DetectedSwitch result;
     if (currentBuffer_.empty()) {
-        Reset();
+        lastWord_.clear();
+        lastDelimiter_ = 0;
         return result;
     }
 
@@ -233,77 +452,104 @@ DetectedSwitch Detector::EvaluateWord(wchar_t delimiter) {
     lastDelimiter_ = delimiter;
     currentBuffer_.clear();
 
-    // Check for numbers or code path indicators
-    bool hasLetters = false;
+    // Check for numbers, code symbols, or mixed non-word symbols
+    bool hasAlphaOrMapped = false;
     for (wchar_t ch : word) {
-        if ((ch >= L'a' && ch <= L'z') || (ch >= L'A' && ch <= L'Z') ||
-            (ch >= L'а' && ch <= L'я') || (ch >= L'А' && ch <= L'Я') || ch == L'ё' || ch == L'Ё' ||
-            ch == L'[' || ch == L']' || ch == L';' || ch == L'\'' || ch == L',' || ch == L'.' || ch == L'`') {
-            hasLetters = true;
-        } else if ((ch >= L'0' && ch <= L'9') || ch == L'_' || ch == L'\\' || ch == L'@' || ch == L'#') {
-            return result; // Code or number
+        if (IsLatinLetter(ch) || IsCyrillicLetter(ch)) {
+            hasAlphaOrMapped = true;
+        } else if ((ch >= L'0' && ch <= L'9') || ch == L'_' || ch == L'\\' ||
+                   ch == L'@' || ch == L'#' || ch == L'=' || ch == L'+' ||
+                   ch == L'*' || ch == L'%' || ch == L'|' || ch == L'-') {
+            return result; // Code, path, hyphenated token, or number
         }
     }
 
-    if (!hasLetters || word.length() < 2) {
+    if (!hasAlphaOrMapped || word.length() < 2) {
         return result;
     }
 
     std::wstring wordLower = Platform::ToLower(word);
 
-    // Check if word contains layout-specific punctuation keys
-    bool hasLayoutPunct = false;
-    for (wchar_t ch : wordLower) {
-        if (ch == L'[' || ch == L']' || ch == L';' || ch == L'\'' || ch == L',' || ch == L'.' || ch == L'`') {
-            hasLayoutPunct = true;
-            break;
-        }
-    }
-
-    // 1. Check if word is typed in EN layout (Latin + punctuation keys)
+    // 1. Check if word is typed in EN layout
     bool isEnLayout = true;
+    bool hasLatinLetter = false;
     for (wchar_t ch : wordLower) {
-        if (!((ch >= L'a' && ch <= L'z') || ch == L'[' || ch == L']' || ch == L';' || ch == L'\'' || ch == L',' || ch == L'.' || ch == L'`')) {
+        if (IsLatinLetter(ch)) {
+            hasLatinLetter = true;
+        } else if (!IsEnMappedLetterPunct(ch) && !IsTrailingPunct(ch)) {
             isEnLayout = false;
             break;
         }
     }
 
-    // 2. Check if word is typed in RU layout (Cyrillic)
+    // 2. Check if word is typed in RU layout
     bool isRuLayout = true;
+    bool hasCyrillicLetter = false;
     for (wchar_t ch : wordLower) {
-        if (!((ch >= L'а' && ch <= L'я') || ch == L'ё')) {
+        if ((ch >= L'а' && ch <= L'я') || ch == L'ё') {
+            hasCyrillicLetter = true;
+        } else if (!IsRuLayoutChar(ch)) {
             isRuLayout = false;
             break;
         }
     }
 
-    if (isEnLayout) {
-        // Guard against falsely translating real English words:
-        if (IsCommonEnglishWord(wordLower)) {
-            return result; // Explicitly a known English word!
+    if (isEnLayout && hasLatinLetter) {
+        // Strip trailing sentence punctuation (e.g. "test.", "this,", "ghbdtn?", "ghbdtn/")
+        size_t stemEnd = wordLower.length();
+        while (stemEnd > 0 && IsTrailingPunct(wordLower[stemEnd - 1])) {
+            stemEnd--;
+        }
+        if (stemEnd == 0) {
+            return result;
         }
 
-        // Test translation to Russian
-        std::wstring convertedToRu = LayoutEngine::Instance().EnToRu(word);
-        std::wstring convertedLower = Platform::ToLower(convertedToRu);
+        std::wstring stemLower = wordLower.substr(0, stemEnd);
 
-        bool isKnownRu = IsCommonRussianWord(convertedLower);
-        bool impossibleEn = IsImpossibleEnglish(wordLower);
-        bool impossibleRu = IsImpossibleRussian(convertedLower);
-        bool hasRuMorph = MatchesRussianMorphology(convertedLower);
-        bool hasRuVowels = HasRussianVowels(convertedLower);
+        // If any non-letter punctuation like '/', '?', '&', '^', '$', '!' appears inside the stem, treat as path/code
+        for (wchar_t ch : stemLower) {
+            if (ch == L'/' || ch == L'?' || ch == L'&' || ch == L'^' || ch == L'$' || ch == L'!') {
+                return result;
+            }
+        }
 
-        // Strict criteria for converting EN -> RU to avoid aggressive false conversions:
-        // Must be in Russian vocabulary, OR have punctuation keys, OR be impossible in English with valid Russian morphology
+        // Guard against falsely translating real English words, contractions, or English words with trailing punctuation
+        if (IsCommonEnglishWord(wordLower) || IsCommonEnglishWord(stemLower) ||
+            IsEnglishContractionOrPossessive(stemLower)) {
+            return result;
+        }
+
+        // Check internal layout punctuation inside the stem only (ignores trailing . or , on real English words)
+        bool hasInternalLayoutPunct = false;
+        for (wchar_t ch : stemLower) {
+            if (IsEnMappedLetterPunct(ch)) {
+                hasInternalLayoutPunct = true;
+                break;
+            }
+        }
+
+        std::wstring fullConverted = LayoutEngine::Instance().EnToRu(word);
+        std::wstring fullConvertedLower = Platform::ToLower(fullConverted);
+        std::wstring stemRuLower = Platform::ToLower(LayoutEngine::Instance().EnToRu(word.substr(0, stemEnd)));
+
+        bool isKnownRuFull = IsCommonRussianWord(fullConvertedLower);
+        bool isKnownRuStem = IsCommonRussianWord(stemRuLower);
+        bool impossibleEn = IsImpossibleEnglish(stemLower);
+        bool impossibleRuFull = IsImpossibleRussian(fullConvertedLower);
+        bool impossibleRuStem = IsImpossibleRussian(stemRuLower);
+        bool hasRuVowelsFull = HasRussianVowels(fullConvertedLower);
+        bool hasRuVowelsStem = HasRussianVowels(stemRuLower);
+
         bool shouldConvert = false;
-        if (isKnownRu) {
+        if (isKnownRuFull || isKnownRuStem) {
             shouldConvert = true;
-        } else if (hasLayoutPunct && hasRuVowels && !impossibleRu) {
-            // Words like ,scnhj (быстро), gkj[j (плохо), vj;yj (можно), 'nj (это), gthtrk.xtybt (переключение)
+        } else if (hasInternalLayoutPunct && hasRuVowelsFull && !impossibleRuFull) {
+            // Words like ,scnhj (быстро), gkj[j (плохо), vj;yj (можно), 'nj (это), k.,k. (люблю)
             shouldConvert = true;
-        } else if (impossibleEn && hasRuVowels && !impossibleRu && (hasRuMorph || wordLower.length() >= 5)) {
-            // Words like ghbdtn, cghjcbk, ctujlyz
+        } else if (impossibleEn && hasRuVowelsFull && !impossibleRuFull && stemLower.length() >= 3) {
+            // Russian words with non-English stems, including trailing '.' -> 'ю' (e.g. htif. -> решаю) or trailing punct (ghbdtn?)
+            shouldConvert = true;
+        } else if (impossibleEn && hasRuVowelsStem && !impossibleRuStem && stemLower.length() >= 3) {
             shouldConvert = true;
         }
 
@@ -312,23 +558,44 @@ DetectedSwitch Detector::EvaluateWord(wchar_t delimiter) {
             result.currentLang = WordLanguage::English;
             result.targetLang = WordLanguage::Russian;
             result.originalWord = word;
-            result.convertedWord = convertedToRu;
+            result.convertedWord = fullConverted;
             result.delimiter = delimiter;
             return result;
         }
-    } else if (isRuLayout) {
-        if (IsCommonRussianWord(wordLower)) {
+    } else if (isRuLayout && hasCyrillicLetter) {
+        // Strip trailing Russian punctuation (e.g. "привет,", "рук.", "црфе,")
+        size_t ruStemEnd = wordLower.length();
+        while (ruStemEnd > 0 && IsTrailingPunct(wordLower[ruStemEnd - 1])) {
+            ruStemEnd--;
+        }
+        if (ruStemEnd == 0) {
+            return result;
+        }
+
+        std::wstring ruStemLower = wordLower.substr(0, ruStemEnd);
+        if (IsCommonRussianWord(wordLower) || IsCommonRussianWord(ruStemLower)) {
             return result; // Explicitly a known Russian word!
         }
 
-        // Test translation to English
         std::wstring convertedToEn = LayoutEngine::Instance().RuToEn(word);
-        std::wstring convertedLower = Platform::ToLower(convertedToEn);
+        std::wstring convertedEnLower = Platform::ToLower(convertedToEn);
 
-        bool isKnownEn = IsCommonEnglishWord(convertedLower);
-        bool impossibleRu = IsImpossibleRussian(wordLower);
-        bool impossibleEn = IsImpossibleEnglish(convertedLower);
-        bool hasEnVowels = HasEnglishVowels(convertedLower);
+        // Strip trailing EN punctuation from converted text (covers "руддщб" -> "hello,", "цщкдвю" -> "world.", "црфе," -> "what?")
+        size_t enStemEnd = convertedEnLower.length();
+        while (enStemEnd > 0 && IsTrailingPunct(convertedEnLower[enStemEnd - 1])) {
+            enStemEnd--;
+        }
+        if (enStemEnd == 0) {
+            return result;
+        }
+        std::wstring stemEnLower = convertedEnLower.substr(0, enStemEnd);
+
+        bool isKnownEn = IsCommonEnglishWord(convertedEnLower) ||
+                         IsCommonEnglishWord(stemEnLower) ||
+                         IsEnglishContractionOrPossessive(stemEnLower);
+        bool impossibleRu = IsImpossibleRussian(ruStemLower);
+        bool impossibleEn = IsImpossibleEnglish(stemEnLower);
+        bool hasEnVowels = HasEnglishVowels(stemEnLower);
 
         bool shouldConvert = false;
         if (isKnownEn) {

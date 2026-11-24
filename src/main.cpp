@@ -9,8 +9,17 @@
 static const wchar_t* MSG_WINDOW_CLASS = L"CapsSwitchMessageReceiver";
 static const wchar_t* MUTEX_NAME = L"Local\\CapsSwitch_SingleInstance_Mutex";
 static HWND g_hMsgWnd = nullptr;
+static UINT g_wmTaskbarCreated = 0;
+
+constexpr UINT_PTR TIMER_TRIM_WORKING_SET = 1;
+constexpr UINT_PTR TIMER_SYNC_TRAY_LAYOUT = 2;
 
 LRESULT CALLBACK MessageWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    if (g_wmTaskbarCreated != 0 && msg == g_wmTaskbarCreated) {
+        Platform::TrayIcon::Instance().Readd();
+        return 0;
+    }
+
     switch (msg) {
     case Platform::WM_TRAYICON: {
         UINT uMsg = LOWORD(lParam);
@@ -28,8 +37,17 @@ LRESULT CALLBACK MessageWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
         return 0;
     }
     case WM_TIMER: {
-        // Periodic memory working set optimization
-        Platform::TrimWorkingSet();
+        if (wParam == TIMER_TRIM_WORKING_SET) {
+            // Periodic memory working set optimization
+            Platform::TrimWorkingSet();
+        } else if (wParam == TIMER_SYNC_TRAY_LAYOUT) {
+            HWND fg = GetForegroundWindow();
+            if (fg) {
+                WORD lang = Core::LayoutEngine::Instance().GetLayout(fg);
+                bool paused = Core::HookManager::Instance().IsPaused();
+                Platform::TrayIcon::Instance().UpdateLanguage(lang, paused);
+            }
+        }
         return 0;
     }
     case WM_DESTROY: {
@@ -46,7 +64,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR /*lpCmdLi
     return wWinMain(hInstance, hPrevInstance, GetCommandLineW(), nShowCmd);
 }
 
-int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLine, int nShowCmd) {
+int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, LPWSTR lpCmdLine, int /*nShowCmd*/) {
     // 1. Single Instance check
     HANDLE hMutex = CreateMutexW(nullptr, TRUE, MUTEX_NAME);
     if (!hMutex || GetLastError() == ERROR_ALREADY_EXISTS) {
@@ -64,7 +82,9 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
     (void)Config::ConfigManager::Instance();
 
     // 3. Register message-only window for system tray and system messages
-    WNDCLASSEXW wc = { sizeof(WNDCLASSEXW) };
+    g_wmTaskbarCreated = RegisterWindowMessageW(L"TaskbarCreated");
+    WNDCLASSEXW wc = {};
+    wc.cbSize = sizeof(WNDCLASSEXW);
     wc.lpfnWndProc = MessageWndProc;
     wc.hInstance = hInstance;
     wc.lpszClassName = MSG_WINDOW_CLASS;
@@ -96,6 +116,9 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
         HWND fg = GetForegroundWindow();
         WORD lang = Core::LayoutEngine::Instance().GetLayout(fg);
         Platform::TrayIcon::Instance().UpdateLanguage(lang, next);
+        if (UI::SettingsWindow::Instance().IsVisible()) {
+            InvalidateRect(UI::SettingsWindow::Instance().GetHwnd(), nullptr, FALSE);
+        }
     });
     Platform::TrayIcon::Instance().SetOnExitClicked([]() {
         PostQuitMessage(0);
@@ -124,8 +147,9 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
         return 1;
     }
 
-    // Timer for polite working set optimization (every 30 seconds)
-    SetTimer(g_hMsgWnd, 1, 30000, nullptr);
+    // Timers for working set trim (30s) and background foreground layout sync (500ms)
+    SetTimer(g_hMsgWnd, TIMER_TRIM_WORKING_SET, 30000, nullptr);
+    SetTimer(g_hMsgWnd, TIMER_SYNC_TRAY_LAYOUT, 500, nullptr);
     Platform::TrimWorkingSet();
 
     // 8. Main Message Loop
@@ -136,7 +160,8 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
     }
 
     // 9. Shutdown & Cleanup
-    KillTimer(g_hMsgWnd, 1);
+    KillTimer(g_hMsgWnd, TIMER_TRIM_WORKING_SET);
+    KillTimer(g_hMsgWnd, TIMER_SYNC_TRAY_LAYOUT);
     Core::HookManager::Instance().Stop();
     Platform::TrayIcon::Instance().Destroy();
 

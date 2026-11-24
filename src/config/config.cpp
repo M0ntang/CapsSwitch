@@ -9,6 +9,27 @@ namespace Config {
 static const wchar_t* REG_KEY_RUN = L"Software\\Microsoft\\Windows\\CurrentVersion\\Run";
 static const wchar_t* REG_VALUE_NAME = L"CapsSwitch";
 
+static std::wstring SanitizeProcessName(const std::wstring& raw) {
+    size_t start = raw.find_first_not_of(L" \t\r\n\"'");
+    if (start == std::wstring::npos) return L"";
+    size_t end = raw.find_last_not_of(L" \t\r\n\"'");
+    std::wstring cleaned = raw.substr(start, end - start + 1);
+
+    size_t lastSlash = cleaned.find_last_of(L"\\/");
+    if (lastSlash != std::wstring::npos) {
+        cleaned = cleaned.substr(lastSlash + 1);
+    }
+
+    cleaned = Platform::ToLower(cleaned);
+    if (cleaned.empty()) return L"";
+
+    if (cleaned.length() < 4 || cleaned.compare(cleaned.length() - 4, 4, L".exe") != 0) {
+        cleaned += L".exe";
+    }
+    if (cleaned == L".exe") return L"";
+    return cleaned;
+}
+
 bool AppConfig::IsExcluded(const std::wstring& processName) const {
     if (processName.empty()) return false;
     std::wstring lower = Platform::ToLower(processName);
@@ -21,10 +42,10 @@ bool AppConfig::IsExcluded(const std::wstring& processName) const {
 }
 
 void AppConfig::AddExclusion(const std::wstring& processName) {
-    if (processName.empty()) return;
-    std::wstring lower = Platform::ToLower(processName);
-    if (!IsExcluded(lower)) {
-        exclusions.push_back(lower);
+    std::wstring normalized = SanitizeProcessName(processName);
+    if (normalized.empty()) return;
+    if (!IsExcluded(normalized)) {
+        exclusions.push_back(normalized);
     }
 }
 
@@ -46,7 +67,30 @@ ConfigManager::ConfigManager() {
     Load();
 }
 
-std::wstring ConfigManager::GetExecutablePath() const {
+void ConfigManager::SyncAtomicsLocked() {
+    autoSwitchAtomic_.store(config_.autoSwitch, std::memory_order_relaxed);
+    capsLockSwitchAtomic_.store(config_.capsLockSwitch, std::memory_order_relaxed);
+    doubleCapsConvertAtomic_.store(config_.doubleCapsConvert, std::memory_order_relaxed);
+    passwordGuardAtomic_.store(config_.passwordGuard, std::memory_order_relaxed);
+}
+
+AppConfig ConfigManager::GetSnapshot() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return config_;
+}
+
+bool ConfigManager::IsProcessExcluded(const std::wstring& processName) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return config_.IsExcluded(processName);
+}
+
+void ConfigManager::Update(const std::function<void(AppConfig&)>& updater) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    updater(config_);
+    SyncAtomicsLocked();
+}
+
+std::wstring ConfigManager::GetExecutablePath() {
     wchar_t buffer[MAX_PATH] = { 0 };
     GetModuleFileNameW(nullptr, buffer, MAX_PATH);
     return std::wstring(buffer);
@@ -62,12 +106,14 @@ std::wstring ConfigManager::GetConfigFilePath() const {
 }
 
 bool ConfigManager::Load() {
+    std::lock_guard<std::mutex> lock(mutex_);
     std::wstring configPath = GetConfigFilePath();
     std::ifstream file(configPath.c_str(), std::ios::in | std::ios::binary);
     if (!file.is_open()) {
         // If config doesn't exist, create it with default values next to .exe
         config_.autostart = IsAutostartInRegistry();
-        Save();
+        SyncAtomicsLocked();
+        SaveLocked();
         return true;
     }
 
@@ -104,7 +150,7 @@ bool ConfigManager::Load() {
     size_t exclPos = content.find("\"exclusions\"");
     if (exclPos != std::string::npos) {
         size_t arrayStart = content.find('[', exclPos);
-        size_t arrayEnd = content.find(']', arrayStart);
+        size_t arrayEnd = (arrayStart != std::string::npos) ? content.find(']', arrayStart) : std::string::npos;
         if (arrayStart != std::string::npos && arrayEnd != std::string::npos) {
             config_.exclusions.clear();
             std::string arrStr = content.substr(arrayStart + 1, arrayEnd - arrayStart - 1);
@@ -116,18 +162,19 @@ bool ConfigManager::Load() {
                 if (q2 == std::string::npos) break;
                 std::string item = arrStr.substr(q1 + 1, q2 - q1 - 1);
                 if (!item.empty()) {
-                    config_.exclusions.push_back(Platform::Utf8ToWide(item));
+                    config_.AddExclusion(Platform::Utf8ToWide(item));
                 }
                 idx = q2 + 1;
             }
         }
     }
 
-    SyncAutostartWithRegistry();
+    SyncAtomicsLocked();
+    SyncAutostartLocked();
     return true;
 }
 
-bool ConfigManager::Save() {
+bool ConfigManager::SaveLocked() {
     std::wstring configPath = GetConfigFilePath();
     std::ofstream file(configPath.c_str(), std::ios::out | std::ios::binary | std::ios::trunc);
     if (!file.is_open()) return false;
@@ -157,16 +204,27 @@ bool ConfigManager::Save() {
     file.write(out.data(), out.size());
     file.close();
 
+    SyncAtomicsLocked();
     SetAutostartRegistry(config_.autostart);
     return true;
 }
 
-bool ConfigManager::SyncAutostartWithRegistry() {
+bool ConfigManager::Save() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return SaveLocked();
+}
+
+bool ConfigManager::SyncAutostartLocked() {
     bool inReg = IsAutostartInRegistry();
     if (config_.autostart != inReg) {
         SetAutostartRegistry(config_.autostart);
     }
     return true;
+}
+
+bool ConfigManager::SyncAutostartWithRegistry() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return SyncAutostartLocked();
 }
 
 bool ConfigManager::SetAutostartRegistry(bool enable) {
@@ -175,7 +233,7 @@ bool ConfigManager::SetAutostartRegistry(bool enable) {
     if (res != ERROR_SUCCESS) return false;
 
     if (enable) {
-        std::wstring exePath = Instance().GetExecutablePath();
+        std::wstring exePath = GetExecutablePath();
         std::wstring cmd = L"\"" + exePath + L"\"";
         res = RegSetValueExW(
             hKey,

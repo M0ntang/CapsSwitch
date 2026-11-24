@@ -18,6 +18,8 @@ struct RawKeyEvent {
     bool isShift = false;
     bool isCtrl = false;
     bool isAlt = false;
+    bool isCapsLock = false;
+    bool isReset = false;
 };
 
 class HookManager {
@@ -35,6 +37,7 @@ public:
 
     // Queue & Action management
     void PushKeyEvent(const RawKeyEvent& ev);
+    void PushResetEvent(bool clearPendingKeys = true);
     void OnCapsPress();
     void PostCapsToggle();
     void PostDoubleCapsAction();

@@ -1,6 +1,8 @@
 #include "ui/settings_window.hpp"
 #include "config/config.hpp"
 #include "core/hook.hpp"
+#include "core/layout_engine.hpp"
+#include "platform/tray.hpp"
 #include "platform/win32_utils.hpp"
 #include <dwmapi.h>
 #include <uxtheme.h>
@@ -57,7 +59,8 @@ SettingsWindow::~SettingsWindow() {
 bool SettingsWindow::Create() {
     if (hWnd_) return true;
 
-    WNDCLASSEXW wc = { sizeof(WNDCLASSEXW) };
+    WNDCLASSEXW wc = {};
+    wc.cbSize = sizeof(WNDCLASSEXW);
     wc.lpfnWndProc = WndProc;
     wc.hInstance = GetModuleHandle(nullptr);
     wc.lpszClassName = L"CapsSwitchSettingsWnd";
@@ -164,14 +167,28 @@ void SettingsWindow::UpdateControls() {
     if (!hListBox_) return;
 
     SendMessageW(hListBox_, LB_RESETCONTENT, 0, 0);
-    const auto& exclusions = Config::ConfigManager::Instance().Get().exclusions;
-    for (const auto& excl : exclusions) {
+    const auto snapshot = Config::ConfigManager::Instance().GetSnapshot();
+    for (const auto& excl : snapshot.exclusions) {
         SendMessageW(hListBox_, LB_ADDSTRING, 0, (LPARAM)excl.c_str());
     }
 }
 
 void SettingsWindow::Show() {
     if (!hWnd_) Create();
+
+    // Center on the monitor containing the cursor
+    POINT cursorPt = {};
+    GetCursorPos(&cursorPt);
+    HMONITOR hMon = MonitorFromPoint(cursorPt, MONITOR_DEFAULTTOPRIMARY);
+    MONITORINFO mi = {};
+    mi.cbSize = sizeof(MONITORINFO);
+    if (GetMonitorInfoW(hMon, &mi)) {
+        RECT wr = mi.rcWork;
+        int posX = wr.left + ((wr.right - wr.left) - WINDOW_WIDTH) / 2;
+        int posY = wr.top + ((wr.bottom - wr.top) - WINDOW_HEIGHT) / 2;
+        SetWindowPos(hWnd_, nullptr, posX, posY, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+    }
+
     UpdateControls();
     ShowWindow(hWnd_, SW_SHOW);
     SetForegroundWindow(hWnd_);
@@ -270,6 +287,7 @@ void SettingsWindow::DrawHeader(HDC hdc) {
     int badgeH = 26;
     int badgeX = 390;
     int badgeY = 24;
+    rcStatusBadge_ = { badgeX, badgeY, badgeX + badgeW, badgeY + badgeH };
 
     HBRUSH hBadgeBrush = CreateSolidBrush(RGB(50, 50, 50));
     HPEN hBadgePen = CreatePen(PS_SOLID, 1, statusCol);
@@ -306,7 +324,7 @@ void SettingsWindow::DrawSettingsCard(HDC hdc) {
     SelectObject(hdc, hOldP);
     DeleteObject(hPen);
 
-    const auto& cfg = Config::ConfigManager::Instance().Get();
+    const auto cfg = Config::ConfigManager::Instance().GetSnapshot();
 
     // 5 Toggle Switches inside card
     int startY = 86;
@@ -406,25 +424,36 @@ LRESULT SettingsWindow::HandleMessage(HWND hWnd, UINT msg, WPARAM wParam, LPARAM
     }
     case WM_LBUTTONDOWN: {
         POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
-        auto& cfg = Config::ConfigManager::Instance().GetMutable();
-        bool changed = false;
 
-        if (PtInRect(&rcToggleAuto_, pt)) {
-            cfg.autoSwitch = !cfg.autoSwitch;
-            changed = true;
-        } else if (PtInRect(&rcToggleCaps_, pt)) {
-            cfg.capsLockSwitch = !cfg.capsLockSwitch;
-            changed = true;
-        } else if (PtInRect(&rcToggleDoubleCaps_, pt)) {
-            cfg.doubleCapsConvert = !cfg.doubleCapsConvert;
-            changed = true;
-        } else if (PtInRect(&rcTogglePwd_, pt)) {
-            cfg.passwordGuard = !cfg.passwordGuard;
-            changed = true;
-        } else if (PtInRect(&rcToggleAutoStart_, pt)) {
-            cfg.autostart = !cfg.autostart;
-            changed = true;
+        if (PtInRect(&rcStatusBadge_, pt)) {
+            bool next = !Core::HookManager::Instance().IsPaused();
+            Core::HookManager::Instance().SetPaused(next);
+            HWND fg = GetForegroundWindow();
+            WORD lang = Core::LayoutEngine::Instance().GetLayout(fg);
+            Platform::TrayIcon::Instance().UpdateLanguage(lang, next);
+            InvalidateRect(hWnd, nullptr, FALSE);
+            return 0;
         }
+
+        bool changed = false;
+        Config::ConfigManager::Instance().Update([&](Config::AppConfig& cfg) {
+            if (PtInRect(&rcToggleAuto_, pt)) {
+                cfg.autoSwitch = !cfg.autoSwitch;
+                changed = true;
+            } else if (PtInRect(&rcToggleCaps_, pt)) {
+                cfg.capsLockSwitch = !cfg.capsLockSwitch;
+                changed = true;
+            } else if (PtInRect(&rcToggleDoubleCaps_, pt)) {
+                cfg.doubleCapsConvert = !cfg.doubleCapsConvert;
+                changed = true;
+            } else if (PtInRect(&rcTogglePwd_, pt)) {
+                cfg.passwordGuard = !cfg.passwordGuard;
+                changed = true;
+            } else if (PtInRect(&rcToggleAutoStart_, pt)) {
+                cfg.autostart = !cfg.autostart;
+                changed = true;
+            }
+        });
 
         if (changed) {
             Config::ConfigManager::Instance().Save();
@@ -439,10 +468,9 @@ LRESULT SettingsWindow::HandleMessage(HWND hWnd, UINT msg, WPARAM wParam, LPARAM
             GetWindowTextW(hEditExcl_, buffer, 256);
             std::wstring text(buffer);
             if (!text.empty()) {
-                if (text.find(L".exe") == std::wstring::npos) {
-                    text += L".exe";
-                }
-                Config::ConfigManager::Instance().GetMutable().AddExclusion(text);
+                Config::ConfigManager::Instance().Update([&text](Config::AppConfig& cfg) {
+                    cfg.AddExclusion(text);
+                });
                 Config::ConfigManager::Instance().Save();
                 UpdateControls();
                 SetWindowTextW(hEditExcl_, L"");
@@ -452,7 +480,9 @@ LRESULT SettingsWindow::HandleMessage(HWND hWnd, UINT msg, WPARAM wParam, LPARAM
             if (sel != LB_ERR) {
                 wchar_t buffer[256] = { 0 };
                 SendMessageW(hListBox_, LB_GETTEXT, sel, (LPARAM)buffer);
-                Config::ConfigManager::Instance().GetMutable().RemoveExclusion(buffer);
+                Config::ConfigManager::Instance().Update([&buffer](Config::AppConfig& cfg) {
+                    cfg.RemoveExclusion(buffer);
+                });
                 Config::ConfigManager::Instance().Save();
                 UpdateControls();
             }

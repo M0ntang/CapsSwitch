@@ -55,8 +55,9 @@ HICON TrayIcon::CreateBadgeIcon(const wchar_t* text, COLORREF bgCol, COLORREF te
 
     // Also draw clear mask rectangle
     HBRUSH hBlackBrush = CreateSolidBrush(RGB(0, 0, 0));
-    SelectObject(hdcMask, hBlackBrush);
+    HBRUSH hOldMaskBrush = static_cast<HBRUSH>(SelectObject(hdcMask, hBlackBrush));
     RoundRect(hdcMask, 0, 0, iconSize, iconSize, 4, 4);
+    SelectObject(hdcMask, hOldMaskBrush);
     DeleteObject(hBlackBrush);
 
     // Draw text centered
@@ -99,10 +100,28 @@ HICON TrayIcon::CreateBadgeIcon(const wchar_t* text, COLORREF bgCol, COLORREF te
     return hIcon;
 }
 
+void TrayIcon::ApplyStateLocked() {
+    if (currentPaused_) {
+        nid_.hIcon = hIconPaused_;
+        wcscpy_s(nid_.szTip, L"CapsSwitch (Приостановлен)");
+    } else if (currentIsRu_) {
+        nid_.hIcon = hIconRu_;
+        wcscpy_s(nid_.szTip, L"CapsSwitch (Активен - RU)");
+    } else {
+        nid_.hIcon = hIconEn_;
+        wcscpy_s(nid_.szTip, L"CapsSwitch (Активен - EN)");
+    }
+}
+
 bool TrayIcon::Create(HWND hWndOwner) {
+    std::lock_guard<std::mutex> lock(mutex_);
     if (isVisible_) return true;
 
     hWndOwner_ = hWndOwner;
+
+    if (!hIconEn_)     hIconEn_     = CreateBadgeIcon(L"EN", RGB(0, 120, 215), RGB(255, 255, 255));
+    if (!hIconRu_)     hIconRu_     = CreateBadgeIcon(L"RU", RGB(216, 59, 1),  RGB(255, 255, 255));
+    if (!hIconPaused_) hIconPaused_ = CreateBadgeIcon(L"||", RGB(118, 118, 118), RGB(255, 255, 255));
 
     nid_.cbSize = sizeof(NOTIFYICONDATAW);
     nid_.hWnd = hWndOwner_;
@@ -110,45 +129,47 @@ bool TrayIcon::Create(HWND hWndOwner) {
     nid_.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
     nid_.uCallbackMessage = WM_TRAYICON;
 
-    hCurrentIcon_ = CreateBadgeIcon(L"EN", RGB(0, 120, 215), RGB(255, 255, 255));
-    nid_.hIcon = hCurrentIcon_;
-    wcscpy_s(nid_.szTip, L"CapsSwitch (Активен - EN)");
+    ApplyStateLocked();
 
-    isVisible_ = Shell_NotifyIconW(NIM_ADD, &nid_);
+    isVisible_ = Shell_NotifyIconW(NIM_ADD, &nid_) != FALSE;
+    return isVisible_;
+}
+
+bool TrayIcon::Readd() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!hWndOwner_) return false;
+
+    nid_.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
+    ApplyStateLocked();
+    isVisible_ = Shell_NotifyIconW(NIM_ADD, &nid_) != FALSE;
     return isVisible_;
 }
 
 void TrayIcon::Destroy() {
+    std::lock_guard<std::mutex> lock(mutex_);
     if (isVisible_) {
         Shell_NotifyIconW(NIM_DELETE, &nid_);
         isVisible_ = false;
     }
-    if (hCurrentIcon_) {
-        DestroyIcon(hCurrentIcon_);
-        hCurrentIcon_ = nullptr;
-    }
+    if (hIconEn_)     { DestroyIcon(hIconEn_);     hIconEn_ = nullptr; }
+    if (hIconRu_)     { DestroyIcon(hIconRu_);     hIconRu_ = nullptr; }
+    if (hIconPaused_) { DestroyIcon(hIconPaused_); hIconPaused_ = nullptr; }
 }
 
 void TrayIcon::UpdateLanguage(WORD langId, bool isPaused) {
+    std::lock_guard<std::mutex> lock(mutex_);
     if (!isVisible_) return;
 
-    if (hCurrentIcon_) {
-        DestroyIcon(hCurrentIcon_);
-        hCurrentIcon_ = nullptr;
+    bool isRu = ((langId & 0xFF) == 0x19);
+    if (hasState_ && isRu == currentIsRu_ && isPaused == currentPaused_) {
+        return;
     }
 
-    if (isPaused) {
-        hCurrentIcon_ = CreateBadgeIcon(L"||", RGB(118, 118, 118), RGB(255, 255, 255));
-        wcscpy_s(nid_.szTip, L"CapsSwitch (Приостановлен)");
-    } else if (langId == Core::LANG_ID_RU) {
-        hCurrentIcon_ = CreateBadgeIcon(L"RU", RGB(216, 59, 1), RGB(255, 255, 255));
-        wcscpy_s(nid_.szTip, L"CapsSwitch (Активен - RU)");
-    } else {
-        hCurrentIcon_ = CreateBadgeIcon(L"EN", RGB(0, 120, 215), RGB(255, 255, 255));
-        wcscpy_s(nid_.szTip, L"CapsSwitch (Активен - EN)");
-    }
+    currentIsRu_ = isRu;
+    currentPaused_ = isPaused;
+    hasState_ = true;
 
-    nid_.hIcon = hCurrentIcon_;
+    ApplyStateLocked();
     nid_.uFlags = NIF_ICON | NIF_TIP;
     Shell_NotifyIconW(NIM_MODIFY, &nid_);
 }

@@ -17,6 +17,7 @@ public:
     ~LayoutEngine();
 
     // Layout identification & switching
+    void RefreshLayouts();
     WORD GetLayout(HWND hwnd);
     bool SwitchLayout(HWND hwnd, WORD targetLang);
     bool ToggleLayout(HWND hwnd);
@@ -45,6 +46,7 @@ public:
 
     // Notification for Windows Text Services Framework & Taskbar indicator
     void NotifyTsfAndTaskbar(WORD targetLang, HKL targetHkl);
+    void ShutdownTsf();
 
     // Input simulation state flag
     static bool IsSimulatingInput();

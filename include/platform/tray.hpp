@@ -2,6 +2,7 @@
 
 #include <windows.h>
 #include <shellapi.h>
+#include <mutex>
 #include <string>
 #include <functional>
 
@@ -17,6 +18,7 @@ public:
     static TrayIcon& Instance();
 
     bool Create(HWND hWndOwner);
+    bool Readd();
     void Destroy();
 
     void UpdateLanguage(WORD langId, bool isPaused);
@@ -31,11 +33,18 @@ private:
     ~TrayIcon();
 
     HICON CreateBadgeIcon(const wchar_t* text, COLORREF bgCol, COLORREF textCol);
+    void ApplyStateLocked();
 
+    mutable std::mutex mutex_;
     HWND hWndOwner_ = nullptr;
     NOTIFYICONDATAW nid_ = {};
-    HICON hCurrentIcon_ = nullptr;
+    HICON hIconEn_ = nullptr;
+    HICON hIconRu_ = nullptr;
+    HICON hIconPaused_ = nullptr;
     bool isVisible_ = false;
+    bool hasState_ = false;
+    bool currentIsRu_ = false;
+    bool currentPaused_ = false;
 
     std::function<void()> onSettings_;
     std::function<void()> onPause_;

@@ -35,6 +35,10 @@ void HookManager::SetPaused(bool paused) {
     isPaused_.store(paused, std::memory_order_relaxed);
     s_isPaused.store(paused, std::memory_order_relaxed);
     if (paused) {
+        capsTogglePending_.store(false, std::memory_order_relaxed);
+        doubleCapsPending_.store(false, std::memory_order_relaxed);
+        lastCapsPressMs_ = 0;
+        PushResetEvent(true);
         Detector::Instance().Reset();
     }
 }
@@ -97,18 +101,37 @@ void HookManager::PushKeyEvent(const RawKeyEvent& ev) {
     SetEvent(hKeyEvent_);
 }
 
+void HookManager::PushResetEvent(bool clearPendingKeys) {
+    RawKeyEvent resetEv;
+    resetEv.isReset = true;
+    {
+        std::lock_guard<std::mutex> lock(queueMutex_);
+        if (clearPendingKeys) {
+            std::queue<RawKeyEvent> empty;
+            std::swap(eventQueue_, empty);
+        }
+        eventQueue_.push(resetEv);
+    }
+    SetEvent(hKeyEvent_);
+}
+
 void HookManager::OnCapsPress() {
     uint64_t now = Platform::GetCurrentTimeMicroseconds() / 1000;
-    uint64_t diff = now - lastCapsPressMs_;
-    lastCapsPressMs_ = now;
+    uint64_t diff = (lastCapsPressMs_ != 0 && now >= lastCapsPressMs_)
+                        ? (now - lastCapsPressMs_)
+                        : UINT64_MAX;
 
-    const auto& cfg = Config::ConfigManager::Instance().Get();
-    if (cfg.doubleCapsConvert && diff <= 450 && diff >= 40) {
-        // Quick double-click detected -> translate selection or last word
+    auto& cfgMgr = Config::ConfigManager::Instance();
+    if (cfgMgr.DoubleCapsConvert() && diff <= 450 && diff >= 30) {
+        // Quick double-click detected -> translate selection or last word, reset timer to prevent 3rd-click chaining
+        lastCapsPressMs_ = 0;
         PostDoubleCapsAction();
     } else {
-        // Single click -> toggle layout
-        PostCapsToggle();
+        lastCapsPressMs_ = now;
+        if (cfgMgr.CapsLockSwitch()) {
+            // Single click -> toggle layout
+            PostCapsToggle();
+        }
     }
 }
 
@@ -126,8 +149,8 @@ void HookManager::PostDoubleCapsAction() {
 
 LRESULT CALLBACK HookManager::LowLevelMouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
     if (nCode >= 0 && (wParam == WM_LBUTTONDOWN || wParam == WM_RBUTTONDOWN)) {
-        if (!LayoutEngine::IsSimulatingInput()) {
-            Detector::Instance().Reset();
+        if (!LayoutEngine::IsSimulatingInput() && s_instance && !s_isPaused.load(std::memory_order_relaxed)) {
+            s_instance->PushResetEvent(true);
         }
     }
     return CallNextHookEx(s_hMouseHook, nCode, wParam, lParam);
@@ -148,10 +171,22 @@ LRESULT CALLBACK HookManager::LowLevelKeyboardProc(int nCode, WPARAM wParam, LPA
     bool isDown = (wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN);
     bool isUp = (wParam == WM_KEYUP || wParam == WM_SYSKEYUP);
 
-    // 2. Caps Lock Interception (zero-lag layout toggling & double click detection)
+    // Capture modifier keys at the instant of key event
+    bool isShift = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
+    bool isCtrl = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+    bool isAlt = (GetAsyncKeyState(VK_MENU) & 0x8000) != 0;
+    bool isWin = ((GetAsyncKeyState(VK_LWIN) & 0x8000) != 0) || ((GetAsyncKeyState(VK_RWIN) & 0x8000) != 0);
+    bool isCapsLock = (GetKeyState(VK_CAPITAL) & 0x0001) != 0;
+
+    // 2. Caps Lock Interception (Shift+Caps passes through to toggle real Caps Lock)
     if (pKbd->vkCode == VK_CAPITAL && !s_isPaused.load(std::memory_order_relaxed)) {
-        const auto& cfg = Config::ConfigManager::Instance().Get();
-        if (cfg.capsLockSwitch) {
+        auto& cfgMgr = Config::ConfigManager::Instance();
+        if (isUp && s_capsIsPressed) {
+            // Always clear pressed state on release even if modifiers were pressed mid-hold
+            s_capsIsPressed = false;
+            return 1;
+        }
+        if (!isShift && !isCtrl && !isAlt && !isWin && (cfgMgr.CapsLockSwitch() || cfgMgr.DoubleCapsConvert())) {
             if (isDown) {
                 // Filter out auto-repeat: trigger only on initial physical keydown
                 if (!s_capsIsPressed) {
@@ -160,47 +195,48 @@ LRESULT CALLBACK HookManager::LowLevelKeyboardProc(int nCode, WPARAM wParam, LPA
                         s_instance->OnCapsPress();
                     }
                 }
-            } else if (isUp) {
-                s_capsIsPressed = false;
             }
-            // Always suppress standard Caps Lock toggle in OS
+            // Suppress standard Caps Lock toggle in OS
             return 1;
         }
     }
 
-    // 3. Navigation and control keys: reset word buffer
+    // 3. Navigation and control keys: reset word buffer in strict queue order
     if (isDown) {
         if (pKbd->vkCode == VK_LEFT || pKbd->vkCode == VK_RIGHT || pKbd->vkCode == VK_UP || pKbd->vkCode == VK_DOWN ||
             pKbd->vkCode == VK_HOME || pKbd->vkCode == VK_END || pKbd->vkCode == VK_PRIOR || pKbd->vkCode == VK_NEXT ||
             pKbd->vkCode == VK_ESCAPE || pKbd->vkCode == VK_DELETE) {
-            Detector::Instance().Reset();
+            if (s_instance && !s_isPaused.load(std::memory_order_relaxed)) {
+                s_instance->PushResetEvent(true);
+            }
             return CallNextHookEx(s_hKbdHook, nCode, wParam, lParam);
         }
     }
 
-    // Capture modifier keys at the instant of key press
-    bool isShift = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
-    bool isCtrl = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
-    bool isAlt = (GetAsyncKeyState(VK_MENU) & 0x8000) != 0;
-
-    // Hotkey combinations (Ctrl+C, Ctrl+V, Alt+Tab, etc.) reset buffer
-    if (isDown && (isCtrl || isAlt)) {
-        Detector::Instance().Reset();
+    // Hotkey combinations (Ctrl+C, Alt+Tab, Win+Space, Win+R, etc.) reset buffer in strict queue order
+    if (isDown && (isCtrl || isAlt || isWin)) {
+        if (s_instance && !s_isPaused.load(std::memory_order_relaxed)) {
+            s_instance->PushResetEvent(true);
+        }
         return CallNextHookEx(s_hKbdHook, nCode, wParam, lParam);
     }
 
-    // 4. Queue key event for asynchronous processing in worker thread
-    if (!s_isPaused.load(std::memory_order_relaxed) && s_instance) {
-        s_instance->PushKeyEvent(RawKeyEvent{
-            pKbd->vkCode,
-            pKbd->scanCode,
-            pKbd->flags,
-            isDown,
-            pKbd->time,
-            isShift,
-            isCtrl,
-            isAlt
-        });
+    // 4. Queue keydown events (excluding bare Shift) for asynchronous processing in worker thread
+    if (isDown &&
+        pKbd->vkCode != VK_SHIFT && pKbd->vkCode != VK_LSHIFT && pKbd->vkCode != VK_RSHIFT &&
+        !s_isPaused.load(std::memory_order_relaxed) && s_instance) {
+        RawKeyEvent ev;
+        ev.vkCode = pKbd->vkCode;
+        ev.scanCode = pKbd->scanCode;
+        ev.flags = pKbd->flags;
+        ev.isDown = true;
+        ev.time = pKbd->time;
+        ev.isShift = isShift;
+        ev.isCtrl = isCtrl;
+        ev.isAlt = isAlt;
+        ev.isCapsLock = isCapsLock;
+        ev.isReset = false;
+        s_instance->PushKeyEvent(ev);
     }
 
     return CallNextHookEx(s_hKbdHook, nCode, wParam, lParam);
@@ -208,6 +244,7 @@ LRESULT CALLBACK HookManager::LowLevelKeyboardProc(int nCode, WPARAM wParam, LPA
 
 void HookManager::WorkerThreadLoop() {
     CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    Platform::PasswordGuard::Instance().Initialize();
 
     HANDLE handles[2] = { hStopEvent_, hKeyEvent_ };
 
@@ -216,6 +253,21 @@ void HookManager::WorkerThreadLoop() {
         if (waitRes == WAIT_OBJECT_0) {
             // Stop signaled
             break;
+        }
+
+        // Drain key/reset queue BEFORE handling double-caps or toggle actions that depend on buffered words
+        while (isRunning_.load()) {
+            RawKeyEvent ev;
+            {
+                std::lock_guard<std::mutex> lock(queueMutex_);
+                if (eventQueue_.empty()) {
+                    break;
+                }
+                ev = eventQueue_.front();
+                eventQueue_.pop();
+            }
+
+            ProcessKeyEvent(ev);
         }
 
         // Process pending Double-Caps Action (translate selection or last word)
@@ -238,55 +290,52 @@ void HookManager::WorkerThreadLoop() {
                 }
             }
         }
-
-        // Drain event queue
-        while (isRunning_.load()) {
-            RawKeyEvent ev;
-            {
-                std::lock_guard<std::mutex> lock(queueMutex_);
-                if (eventQueue_.empty()) {
-                    break;
-                }
-                ev = eventQueue_.front();
-                eventQueue_.pop();
-            }
-
-            ProcessKeyEvent(ev);
-        }
     }
 
+    LayoutEngine::Instance().ShutdownTsf();
+    Platform::PasswordGuard::Instance().Shutdown();
     CoUninitialize();
 }
 
 void HookManager::ProcessKeyEvent(const RawKeyEvent& ev) {
     if (isPaused_.load(std::memory_order_relaxed)) return;
 
+    if (ev.isReset) {
+        Detector::Instance().Reset();
+        Platform::PasswordGuard::Instance().InvalidateCache();
+        return;
+    }
+
     HWND fg = GetForegroundWindow();
     if (!fg) return;
 
-    const auto& cfg = Config::ConfigManager::Instance().Get();
+    if (!ev.isDown) {
+        return;
+    }
 
-    // Check process exclusion list
-    std::wstring procName = Platform::GetProcessNameByHwnd(fg);
-    if (cfg.IsExcluded(procName)) {
+    // Never auto-replace across focus-changing Tab presses
+    if (ev.vkCode == VK_TAB) {
         Detector::Instance().Reset();
+        Platform::PasswordGuard::Instance().InvalidateCache();
         return;
     }
 
     // Check Password Guard
     if (Platform::PasswordGuard::Instance().CheckAndUpdateFocus(fg)) {
-        // Drop buffered keystrokes inside password fields
+        if (ev.vkCode == VK_RETURN) {
+            Platform::PasswordGuard::Instance().InvalidateCache();
+        }
         return;
     }
 
-    if (!ev.isDown) {
-        // We only buffer and inspect on key press (down)
-        return;
-    }
+    auto& cfgMgr = Config::ConfigManager::Instance();
+    std::wstring procName = Platform::GetProcessNameByHwnd(fg);
+    bool isExcluded = cfgMgr.IsProcessExcluded(procName);
 
-    DWORD threadId = GetWindowThreadProcessId(fg, nullptr);
-    HKL currentHkl = GetKeyboardLayout(threadId);
-    WORD currentLang = LOWORD(reinterpret_cast<DWORD_PTR>(currentHkl));
+    DWORD threadId = 0;
+    Platform::ResolveFocusedWindow(fg, &threadId);
+    HKL currentHkl = threadId ? GetKeyboardLayout(threadId) : GetKeyboardLayout(0);
+    WORD currentLang = LOWORD(static_cast<DWORD>(reinterpret_cast<DWORD_PTR>(currentHkl)));
     if (onLayoutChanged_) {
         onLayoutChanged_(currentLang);
     }
@@ -297,27 +346,28 @@ void HookManager::ProcessKeyEvent(const RawKeyEvent& ev) {
         return;
     }
 
-    // Handle delimiters
-    bool isSpace = (ev.vkCode == VK_SPACE);
-    bool isReturn = (ev.vkCode == VK_RETURN);
-    bool isTab = (ev.vkCode == VK_TAB);
-
+    // Handle Space and Enter delimiters
     wchar_t delimChar = 0;
-    if (isSpace) delimChar = L' ';
-    else if (isReturn) delimChar = L'\n';
-    else if (isTab) delimChar = L'\t';
+    if (ev.vkCode == VK_SPACE) delimChar = L' ';
+    else if (ev.vkCode == VK_RETURN) delimChar = L'\n';
 
     if (delimChar != 0) {
-        if (cfg.autoSwitch) {
+        if (ev.vkCode == VK_RETURN) {
+            Platform::PasswordGuard::Instance().InvalidateCache();
+            if (ev.isShift) {
+                // Shift+Enter inserts a soft newline in chat apps; do not replace with plain VK_RETURN
+                Detector::Instance().EvaluateWord(delimChar);
+                return;
+            }
+        }
+        if (cfgMgr.AutoSwitch() && !isExcluded) {
             DetectedSwitch sw = Detector::Instance().EvaluateWord(delimChar);
             if (sw.shouldSwitch) {
-                // Erase previous word + delimiter
                 size_t eraseCount = sw.originalWord.length() + 1;
                 std::wstring replacement = sw.convertedWord + sw.delimiter;
 
                 LayoutEngine::Instance().SimulateReplacement(eraseCount, replacement);
 
-                // Switch layout in foreground window
                 WORD targetLang = (sw.targetLang == WordLanguage::Russian) ? LANG_ID_RU : LANG_ID_EN;
                 LayoutEngine::Instance().SwitchLayout(fg, targetLang);
 
@@ -327,43 +377,27 @@ void HookManager::ProcessKeyEvent(const RawKeyEvent& ev) {
                 Detector::Instance().SetLastWord(sw.convertedWord, sw.delimiter);
             }
         } else {
-            Detector::Instance().Reset();
+            // Still record lastWord_ on delimiter so explicit 2x Caps Lock works even with auto-switch off or excluded
+            Detector::Instance().EvaluateWord(delimChar);
         }
         return;
     }
 
-    // Convert virtual key to Unicode character using captured modifier state
+    // Convert virtual key to Unicode character using captured modifier state (without altering dead-key state)
     BYTE keyState[256] = { 0 };
     if (ev.isShift) {
         keyState[VK_SHIFT] = 0x80;
     }
+    if (ev.isCapsLock) {
+        keyState[VK_CAPITAL] = 0x01;
+    }
 
     wchar_t unicodeBuf[4] = { 0 };
-    int count = ToUnicodeEx(ev.vkCode, ev.scanCode, keyState, unicodeBuf, 4, 0, currentHkl);
+    int count = ToUnicodeEx(ev.vkCode, ev.scanCode, keyState, unicodeBuf, 4, 0x0004, currentHkl);
 
     if (count == 1) {
         wchar_t ch = unicodeBuf[0];
-        // Check sentence end punctuation delimiters (like !, ?)
-        if (ch == L'!' || ch == L'?' || ch == L':') {
-            if (cfg.autoSwitch) {
-                DetectedSwitch sw = Detector::Instance().EvaluateWord(ch);
-                if (sw.shouldSwitch) {
-                    size_t eraseCount = sw.originalWord.length() + 1;
-                    std::wstring replacement = sw.convertedWord + sw.delimiter;
-                    LayoutEngine::Instance().SimulateReplacement(eraseCount, replacement);
-
-                    WORD targetLang = (sw.targetLang == WordLanguage::Russian) ? LANG_ID_RU : LANG_ID_EN;
-                    LayoutEngine::Instance().SwitchLayout(fg, targetLang);
-
-                    if (onLayoutChanged_) {
-                        onLayoutChanged_(targetLang);
-                    }
-                    Detector::Instance().SetLastWord(sw.convertedWord, sw.delimiter);
-                    return;
-                }
-            }
-            Detector::Instance().Reset();
-        } else if (ch >= 32) {
+        if (ch >= 32) {
             Detector::Instance().OnChar(ch);
         }
     }

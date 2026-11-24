@@ -47,6 +47,7 @@ private:
     HFONT hFontRegular_ = nullptr;
     HFONT hFontBold_ = nullptr;
 
+    RECT rcStatusBadge_ = {};
     RECT rcToggleAuto_ = {};
     RECT rcToggleCaps_ = {};
     RECT rcToggleDoubleCaps_ = {};

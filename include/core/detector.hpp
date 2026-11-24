@@ -1,5 +1,6 @@
 #pragma once
 
+#include <mutex>
 #include <string>
 #include <vector>
 #include <windows.h>
@@ -36,9 +37,9 @@ public:
     // Immediate check during typing for impossible letter sequences
     DetectedSwitch CheckImmediate();
 
-    const std::wstring& GetCurrentBuffer() const { return currentBuffer_; }
+    std::wstring GetCurrentBuffer() const;
     std::wstring GetLastWordOrCurrent() const;
-    wchar_t GetLastDelimiter() const { return lastDelimiter_; }
+    wchar_t GetLastDelimiter() const;
     void SetLastWord(const std::wstring& word, wchar_t delim);
 
 private:
@@ -50,11 +51,13 @@ private:
     bool HasRussianVowels(const std::wstring& word) const;
     bool HasEnglishVowels(const std::wstring& word) const;
     bool MatchesRussianMorphology(const std::wstring& word) const;
+    bool IsEnglishContractionOrPossessive(const std::wstring& lower) const;
 
     // Dictionary lookups
     bool IsCommonRussianWord(const std::wstring& word) const;
     bool IsCommonEnglishWord(const std::wstring& word) const;
 
+    mutable std::mutex mutex_;
     std::wstring currentBuffer_;
     std::wstring lastWord_;
     wchar_t lastDelimiter_ = 0;
