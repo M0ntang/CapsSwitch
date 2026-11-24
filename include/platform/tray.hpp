@@ -22,7 +22,12 @@ public:
     void Destroy();
 
     void UpdateLanguage(WORD langId, bool isPaused);
+    void RefreshTheme();
     void ShowContextMenu(POINT pt);
+
+    static HICON CreateFluentBadgeIcon(int sizePx, bool isRu, bool isPaused, bool darkTaskbar);
+    static HICON CreateFluentBadgeIcon(int sizePx, bool isRu, bool isPaused);
+    static HICON CreateFluentAppIcon(int sizePx);
 
     void SetOnSettingsClicked(std::function<void()> cb) { onSettings_ = cb; }
     void SetOnPauseToggled(std::function<void()> cb) { onPause_ = cb; }
@@ -32,7 +37,8 @@ private:
     TrayIcon();
     ~TrayIcon();
 
-    HICON CreateBadgeIcon(const wchar_t* text, COLORREF bgCol, COLORREF textCol);
+    void EnsureIconsLocked();
+    void DestroyIconsLocked();
     void ApplyStateLocked();
 
     mutable std::mutex mutex_;
@@ -41,6 +47,8 @@ private:
     HICON hIconEn_ = nullptr;
     HICON hIconRu_ = nullptr;
     HICON hIconPaused_ = nullptr;
+    int iconSize_ = 0;
+    bool darkTaskbar_ = true;
     bool isVisible_ = false;
     bool hasState_ = false;
     bool currentIsRu_ = false;

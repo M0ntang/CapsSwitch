@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(CapsSwitch VERSION 1.1.0 LANGUAGES CXX RC)
+project(CapsSwitch VERSION 1.2.0 LANGUAGES CXX RC)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -15,6 +15,8 @@ set(SOURCES
     src/platform/password_guard.cpp
     src/platform/tray.cpp
     src/platform/win32_utils.cpp
+    src/ui/fluent_menu.cpp
+    src/ui/fluent_theme.cpp
     src/ui/settings_window.cpp
     res/resource.rc
 )
@@ -28,6 +30,11 @@ if(MSVC)
         user32
         kernel32
         gdi32
+        d2d1
+        dwrite
+        d3d11
+        dxgi
+        dcomp
         uxtheme
         dwmapi
         ole32
@@ -47,6 +54,11 @@ else()
         user32
         kernel32
         gdi32
+        d2d1
+        dwrite
+        d3d11
+        dxgi
+        dcomp
         uxtheme
         dwmapi
         ole32

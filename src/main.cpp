@@ -4,6 +4,8 @@
 #include "core/layout_engine.hpp"
 #include "platform/tray.hpp"
 #include "platform/win32_utils.hpp"
+#include "ui/fluent_menu.hpp"
+#include "ui/fluent_theme.hpp"
 #include "ui/settings_window.hpp"
 
 static const wchar_t* MSG_WINDOW_CLASS = L"CapsSwitchMessageReceiver";
@@ -38,14 +40,16 @@ LRESULT CALLBACK MessageWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
     }
     case WM_TIMER: {
         if (wParam == TIMER_TRIM_WORKING_SET) {
-            // Periodic memory working set optimization
-            Platform::TrimWorkingSet();
+            if (!UI::SettingsWindow::Instance().IsVisible() && !UI::FluentMenu::Instance().IsVisible()) {
+                Platform::TrimWorkingSet();
+            }
         } else if (wParam == TIMER_SYNC_TRAY_LAYOUT) {
             HWND fg = GetForegroundWindow();
             if (fg) {
                 WORD lang = Core::LayoutEngine::Instance().GetLayout(fg);
                 bool paused = Core::HookManager::Instance().IsPaused();
                 Platform::TrayIcon::Instance().UpdateLanguage(lang, paused);
+                UI::SettingsWindow::Instance().NotifyStatusChanged(lang, paused);
             }
         }
         return 0;
@@ -96,8 +100,9 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, LPWSTR lpC
         HWND_MESSAGE, nullptr, hInstance, nullptr
     );
 
-    // 4. Initialize Settings Window
+    // 4. Initialize Settings Window & prewarm GPU popup menu
     UI::SettingsWindow::Instance().Create();
+    UI::FluentMenu::Instance().Prewarm();
 
     // Check command line arguments: if "--settings" passed, open settings window
     if (lpCmdLine && wcsstr(lpCmdLine, L"--settings")) {
@@ -116,9 +121,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, LPWSTR lpC
         HWND fg = GetForegroundWindow();
         WORD lang = Core::LayoutEngine::Instance().GetLayout(fg);
         Platform::TrayIcon::Instance().UpdateLanguage(lang, next);
-        if (UI::SettingsWindow::Instance().IsVisible()) {
-            InvalidateRect(UI::SettingsWindow::Instance().GetHwnd(), nullptr, FALSE);
-        }
+        UI::SettingsWindow::Instance().NotifyStatusChanged(lang, next);
     });
     Platform::TrayIcon::Instance().SetOnExitClicked([]() {
         PostQuitMessage(0);
@@ -128,11 +131,13 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, LPWSTR lpC
     Core::HookManager::Instance().SetLayoutChangedCallback([](WORD newLang) {
         bool paused = Core::HookManager::Instance().IsPaused();
         Platform::TrayIcon::Instance().UpdateLanguage(newLang, paused);
+        UI::SettingsWindow::Instance().NotifyStatusChanged(newLang, paused);
     });
 
     // Initial tray language badge query
     WORD initialLang = Core::LayoutEngine::Instance().GetLayout(GetForegroundWindow());
     Platform::TrayIcon::Instance().UpdateLanguage(initialLang, false);
+    UI::SettingsWindow::Instance().NotifyStatusChanged(initialLang, false);
 
     // 7. Start low-level keyboard hook
     if (!Core::HookManager::Instance().Start()) {
@@ -163,7 +168,10 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, LPWSTR lpC
     KillTimer(g_hMsgWnd, TIMER_TRIM_WORKING_SET);
     KillTimer(g_hMsgWnd, TIMER_SYNC_TRAY_LAYOUT);
     Core::HookManager::Instance().Stop();
+    UI::FluentMenu::Instance().Destroy();
+    UI::SettingsWindow::Instance().Destroy();
     Platform::TrayIcon::Instance().Destroy();
+    UI::FluentGraphics::Instance().Shutdown();
 
     if (g_hMsgWnd) {
         DestroyWindow(g_hMsgWnd);

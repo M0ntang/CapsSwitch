@@ -1,376 +1,297 @@
 #include "ui/settings_window.hpp"
-#include "config/config.hpp"
 #include "core/hook.hpp"
 #include "core/layout_engine.hpp"
 #include "platform/tray.hpp"
 #include "platform/win32_utils.hpp"
-#include <dwmapi.h>
-#include <uxtheme.h>
-#include <commctrl.h>
+#include "ui/fluent_menu.hpp"
 #include <commdlg.h>
 #include <windowsx.h>
-
-#ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
-#define DWMWA_USE_IMMERSIVE_DARK_MODE 20
-#endif
-
-#ifndef EM_SETCUEBANNER
-#define EM_SETCUEBANNER 0x1501
-#endif
+#include <algorithm>
+#include <cmath>
 
 namespace UI {
 
-constexpr int CLIENT_WIDTH = 515;
-constexpr int CLIENT_HEIGHT = 668;
+constexpr float WND_LOGICAL_W = 660.0f;
+constexpr float WND_LOGICAL_H = 468.0f;
 
-constexpr COLORREF COL_BG = RGB(32, 32, 32);
-constexpr COLORREF COL_CARD = RGB(43, 43, 43);
-constexpr COLORREF COL_BORDER = RGB(58, 58, 58);
-constexpr COLORREF COL_TEXT_PRI = RGB(255, 255, 255);
-constexpr COLORREF COL_TEXT_SEC = RGB(160, 160, 160);
-constexpr COLORREF COL_ACCENT = RGB(0, 120, 215);
-constexpr COLORREF COL_RU = RGB(216, 59, 1);
-constexpr COLORREF COL_TOGGLE_OFF = RGB(68, 68, 72);
-constexpr COLORREF COL_TAB_ACTIVE = RGB(58, 58, 64);
-constexpr COLORREF COL_TAB_INACTIVE = RGB(36, 36, 38);
-constexpr COLORREF COL_SUCCESS = RGB(16, 185, 129);
-constexpr COLORREF COL_AMBER = RGB(245, 158, 11);
+constexpr float RAIL_W = 184.0f;
+constexpr float TOP_BAR_H = 36.0f;
+constexpr float CAPTION_BTN_W = 46.0f;
+constexpr float CAPTION_BTN_H = 34.0f;
 
-constexpr UINT ID_LIST_EXCL = 3001;
-constexpr UINT ID_EDIT_EXCL = 3002;
-constexpr UINT ID_BTN_ADD = 3003;
-constexpr UINT ID_BTN_REMOVE = 3004;
-constexpr UINT ID_BTN_SAVE = 3005;
-constexpr UINT ID_BTN_CLOSE = 3006;
+// Navigation rail geometry
+constexpr float NAV_X = 8.0f;
+constexpr float NAV_W = 168.0f;
+constexpr float NAV_START_Y = 48.0f;
+constexpr float NAV_ITEM_H = 36.0f;
+constexpr float NAV_GAP = 4.0f;
 
-constexpr UINT ID_LIST_APP_LAYOUTS = 3010;
-constexpr UINT ID_EDIT_APP_PROC = 3011;
-constexpr UINT ID_BTN_PICK_APP = 3012;
-constexpr UINT ID_BTN_APP_ADD = 3013;
-constexpr UINT ID_BTN_APP_TOGGLE_LANG = 3014;
-constexpr UINT ID_BTN_APP_REMOVE = 3015;
-constexpr UINT ID_BTN_PICK_EXCL = 3016;
+// Workspace pane geometry
+constexpr float WORK_PAD_X = 208.0f;
+constexpr float WORK_RIGHT = 636.0f;
+constexpr float WORK_W = WORK_RIGHT - WORK_PAD_X; // 428
+
+constexpr float HEADER_Y = 46.0f;
+constexpr float BODY_TOP = 80.0f;
+constexpr float BODY_BOTTOM = 456.0f;
+
+// General cards (clean native Windows 11 Settings style)
+constexpr float CARD_START_Y = 86.0f;
+constexpr float CARD_H = 62.0f;
+constexpr float CARD_GAP = 6.0f;
+
+// AppLayouts & Exclusions toolbar and list
+constexpr float TOOLBAR_Y = 86.0f;
+constexpr float TOOLBAR_H = 32.0f;
+constexpr float LIST_Y = 128.0f;
+constexpr float LIST_H = 316.0f;
+constexpr float APP_ROW_H = 42.0f;
+constexpr float EXCL_ROW_H = 42.0f;
+
+constexpr UINT_PTR TIMER_ANIM = 101;
+constexpr UINT WM_SETTINGS_STATUS_SYNC = WM_APP + 201;
 
 constexpr UINT ID_PICKER_PROC_BASE = 4000;
 constexpr UINT ID_PICKER_BROWSE = 4999;
+
+namespace {
+
+D2D1_RECT_F RcBtnMinimize() {
+    return D2D1::RectF(WND_LOGICAL_W - CAPTION_BTN_W * 2.0f, 0.0f, WND_LOGICAL_W - CAPTION_BTN_W, CAPTION_BTN_H);
+}
+
+D2D1_RECT_F RcBtnClose() {
+    return D2D1::RectF(WND_LOGICAL_W - CAPTION_BTN_W, 0.0f, WND_LOGICAL_W, CAPTION_BTN_H);
+}
+
+D2D1_RECT_F RcNavItem(int idx) {
+    float y = NAV_START_Y + idx * (NAV_ITEM_H + NAV_GAP);
+    return D2D1::RectF(NAV_X, y, NAV_X + NAV_W, y + NAV_ITEM_H);
+}
+
+D2D1_RECT_F RcRailPauseBtn() {
+    return D2D1::RectF(NAV_X, 422.0f, NAV_X + NAV_W, 456.0f);
+}
+
+D2D1_RECT_F RcToggleRow(int idx) {
+    float y = CARD_START_Y + idx * (CARD_H + CARD_GAP);
+    return D2D1::RectF(WORK_PAD_X, y, WORK_RIGHT, y + CARD_H);
+}
+
+D2D1_RECT_F RcAppInput()  { return D2D1::RectF(WORK_PAD_X, TOOLBAR_Y, WORK_PAD_X + 170.0f, TOOLBAR_Y + TOOLBAR_H); }
+D2D1_RECT_F RcAppPick()   { return D2D1::RectF(WORK_PAD_X + 178.0f, TOOLBAR_Y, WORK_PAD_X + 250.0f, TOOLBAR_Y + TOOLBAR_H); }
+D2D1_RECT_F RcAppLangEn() { return D2D1::RectF(WORK_PAD_X + 258.0f, TOOLBAR_Y, WORK_PAD_X + 298.0f, TOOLBAR_Y + TOOLBAR_H); }
+D2D1_RECT_F RcAppLangRu() { return D2D1::RectF(WORK_PAD_X + 298.0f, TOOLBAR_Y, WORK_PAD_X + 338.0f, TOOLBAR_Y + TOOLBAR_H); }
+D2D1_RECT_F RcAppAdd()    { return D2D1::RectF(WORK_PAD_X + 346.0f, TOOLBAR_Y, WORK_RIGHT, TOOLBAR_Y + TOOLBAR_H); }
+
+D2D1_RECT_F RcExclInput() { return D2D1::RectF(WORK_PAD_X, TOOLBAR_Y, WORK_PAD_X + 256.0f, TOOLBAR_Y + TOOLBAR_H); }
+D2D1_RECT_F RcExclPick()  { return D2D1::RectF(WORK_PAD_X + 264.0f, TOOLBAR_Y, WORK_PAD_X + 336.0f, TOOLBAR_Y + TOOLBAR_H); }
+D2D1_RECT_F RcExclAdd()   { return D2D1::RectF(WORK_PAD_X + 344.0f, TOOLBAR_Y, WORK_RIGHT, TOOLBAR_Y + TOOLBAR_H); }
+
+D2D1_RECT_F RcListBox()   { return D2D1::RectF(WORK_PAD_X, LIST_Y, WORK_RIGHT, LIST_Y + LIST_H); }
+
+bool PointInRectF(const D2D1_RECT_F& rc, float x, float y) {
+    return x >= rc.left && x <= rc.right && y >= rc.top && y <= rc.bottom;
+}
+
+D2D1_RECT_F ShiftRectY(const D2D1_RECT_F& rc, float dy) {
+    return D2D1::RectF(rc.left, rc.top + dy, rc.right, rc.bottom + dy);
+}
+
+} // namespace
 
 SettingsWindow& SettingsWindow::Instance() {
     static SettingsWindow s_instance;
     return s_instance;
 }
 
-SettingsWindow::SettingsWindow() {
-    hBrBackground_ = CreateSolidBrush(COL_BG);
-    hBrCard_ = CreateSolidBrush(COL_CARD);
-    hBrBorder_ = CreateSolidBrush(COL_BORDER);
+SettingsWindow::~SettingsWindow() {
+    Destroy();
 }
 
-SettingsWindow::~SettingsWindow() {
-    if (hBrBackground_) DeleteObject(hBrBackground_);
-    if (hBrCard_) DeleteObject(hBrCard_);
-    if (hBrBorder_) DeleteObject(hBrBorder_);
-    if (hFontTitle_) DeleteObject(hFontTitle_);
-    if (hFontSub_) DeleteObject(hFontSub_);
-    if (hFontRegular_) DeleteObject(hFontRegular_);
-    if (hFontBold_) DeleteObject(hFontBold_);
+void SettingsWindow::EnsureFormats() {
+    auto& gfx = FluentGraphics::Instance();
+    if (!gfx.EnsureInitialized()) return;
+
+    if (!fmtBrand_) {
+        fmtBrand_ = gfx.CreateTextFormat(13.0f, DWRITE_FONT_WEIGHT_SEMI_BOLD, false,
+            DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+    }
+    if (!fmtNav_) {
+        fmtNav_ = gfx.CreateTextFormat(13.0f, DWRITE_FONT_WEIGHT_NORMAL, false,
+            DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+    }
+    if (!fmtPageTitle_) {
+        fmtPageTitle_ = gfx.CreateTextFormat(20.0f, DWRITE_FONT_WEIGHT_SEMI_BOLD, true,
+            DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+    }
+    if (!fmtSubtitle_) {
+        fmtSubtitle_ = gfx.CreateTextFormat(12.0f, DWRITE_FONT_WEIGHT_NORMAL, false,
+            DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+    }
+    if (!fmtGroupLabel_) {
+        fmtGroupLabel_ = gfx.CreateTextFormat(12.0f, DWRITE_FONT_WEIGHT_SEMI_BOLD, false,
+            DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+    }
+    if (!fmtRowTitle_) {
+        fmtRowTitle_ = gfx.CreateTextFormat(13.0f, DWRITE_FONT_WEIGHT_SEMI_BOLD, false,
+            DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+    }
+    if (!fmtRowSub_) {
+        fmtRowSub_ = gfx.CreateTextFormat(11.5f, DWRITE_FONT_WEIGHT_NORMAL, false,
+            DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+        if (fmtRowSub_) {
+            fmtRowSub_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+            DWRITE_TRIMMING trim = { DWRITE_TRIMMING_GRANULARITY_CHARACTER, 0, 0 };
+            fmtRowSub_->SetTrimming(&trim, nullptr);
+        }
+    }
+    if (!fmtBadge_) {
+        fmtBadge_ = gfx.CreateTextFormat(11.0f, DWRITE_FONT_WEIGHT_SEMI_BOLD, false,
+            DWRITE_TEXT_ALIGNMENT_CENTER, DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+    }
+    if (!fmtBtn_) {
+        fmtBtn_ = gfx.CreateTextFormat(13.0f, DWRITE_FONT_WEIGHT_NORMAL, false,
+            DWRITE_TEXT_ALIGNMENT_CENTER, DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+    }
+    if (!fmtInput_) {
+        fmtInput_ = gfx.CreateTextFormat(13.0f, DWRITE_FONT_WEIGHT_NORMAL, false,
+            DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+        if (fmtInput_) {
+            fmtInput_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+        }
+    }
+    if (!fmtSmall_) {
+        fmtSmall_ = gfx.CreateTextFormat(11.5f, DWRITE_FONT_WEIGHT_NORMAL, false,
+            DWRITE_TEXT_ALIGNMENT_CENTER, DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+    }
+}
+
+void SettingsWindow::ReleaseFormats() {
+    if (fmtBrand_)      { fmtBrand_->Release();      fmtBrand_ = nullptr; }
+    if (fmtNav_)        { fmtNav_->Release();        fmtNav_ = nullptr; }
+    if (fmtPageTitle_)  { fmtPageTitle_->Release();  fmtPageTitle_ = nullptr; }
+    if (fmtSubtitle_)   { fmtSubtitle_->Release();   fmtSubtitle_ = nullptr; }
+    if (fmtGroupLabel_) { fmtGroupLabel_->Release(); fmtGroupLabel_ = nullptr; }
+    if (fmtRowTitle_)   { fmtRowTitle_->Release();   fmtRowTitle_ = nullptr; }
+    if (fmtRowSub_)     { fmtRowSub_->Release();     fmtRowSub_ = nullptr; }
+    if (fmtBadge_)      { fmtBadge_->Release();      fmtBadge_ = nullptr; }
+    if (fmtBtn_)        { fmtBtn_->Release();        fmtBtn_ = nullptr; }
+    if (fmtInput_)      { fmtInput_->Release();      fmtInput_ = nullptr; }
+    if (fmtSmall_)      { fmtSmall_->Release();      fmtSmall_ = nullptr; }
+}
+
+void SettingsWindow::RefreshWindowIcons() {
+    if (!hWnd_) return;
+    if (hIconBig_ && hIconSmall_) return;
+
+    HICON newBig = Platform::TrayIcon::CreateFluentAppIcon(32);
+    HICON newSmall = Platform::TrayIcon::CreateFluentAppIcon(16);
+
+    if (newBig) {
+        SendMessageW(hWnd_, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(newBig));
+        if (hIconBig_) DestroyIcon(hIconBig_);
+        hIconBig_ = newBig;
+    }
+    if (newSmall) {
+        SendMessageW(hWnd_, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(newSmall));
+        if (hIconSmall_) DestroyIcon(hIconSmall_);
+        hIconSmall_ = newSmall;
+    }
+}
+
+void SettingsWindow::RefreshSnapshot(bool snapAnimations) {
+    cfg_ = Config::ConfigManager::Instance().GetSnapshot();
+    livePaused_ = Core::HookManager::Instance().IsPaused();
+    HWND fg = GetForegroundWindow();
+    if (fg && fg != hWnd_) {
+        WORD lang = Core::LayoutEngine::Instance().GetLayout(fg);
+        liveIsRu_ = ((lang & 0xFF) == 0x19);
+    }
+
+    if (snapAnimations) {
+        toggleAnim_[0] = cfg_.autoSwitch ? 1.0f : 0.0f;
+        toggleAnim_[1] = cfg_.capsLockSwitch ? 1.0f : 0.0f;
+        toggleAnim_[2] = cfg_.doubleCapsConvert ? 1.0f : 0.0f;
+        toggleAnim_[3] = cfg_.passwordGuard ? 1.0f : 0.0f;
+        toggleAnim_[4] = cfg_.autostart ? 1.0f : 0.0f;
+        statusPausedAnim_ = livePaused_ ? 1.0f : 0.0f;
+        langChipRuAnim_ = liveIsRu_ ? 1.0f : 0.0f;
+        langSelectorAnim_ = (selectedAppLayout_ == Config::AppLayout::Russian) ? 1.0f : 0.0f;
+        D2D1_RECT_F navRc = RcNavItem(static_cast<int>(activeTab_));
+        navIndicatorY_ = navRc.top + (NAV_ITEM_H - 16.0f) * 0.5f;
+        pageTransition_ = 1.0f;
+    }
 }
 
 bool SettingsWindow::Create() {
-    if (hWnd_) return true;
+    if (hWnd_ && IsWindow(hWnd_)) return true;
 
+    bool gpuAvail = FluentGraphics::Instance().IsGpuAvailable();
+    HINSTANCE hInst = GetModuleHandleW(nullptr);
     WNDCLASSEXW wc = {};
     wc.cbSize = sizeof(WNDCLASSEXW);
     wc.lpfnWndProc = WndProc;
-    wc.hInstance = GetModuleHandle(nullptr);
+    wc.hInstance = hInst;
     wc.lpszClassName = L"CapsSwitchSettingsWnd";
     wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
-    wc.hbrBackground = hBrBackground_;
-    wc.hIcon = (HICON)LoadImageW(wc.hInstance, MAKEINTRESOURCEW(1), IMAGE_ICON, 32, 32, LR_SHARED);
-    wc.hIconSm = (HICON)LoadImageW(wc.hInstance, MAKEINTRESOURCEW(1), IMAGE_ICON, 16, 16, LR_SHARED);
-
+    wc.hbrBackground = nullptr;
+    wc.style = CS_DBLCLKS;
     RegisterClassExW(&wc);
 
-    // Compute outer window size from desired client dimensions
-    DWORD style = WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
-    DWORD exStyle = WS_EX_DLGMODALFRAME;
-    RECT rcWin = { 0, 0, CLIENT_WIDTH, CLIENT_HEIGHT };
-    AdjustWindowRectEx(&rcWin, style, FALSE, exStyle);
-    int winW = rcWin.right - rcWin.left;
-    int winH = rcWin.bottom - rcWin.top;
+    darkMode_ = IsSystemDarkMode();
 
-    // Center window on primary monitor
-    int scrW = GetSystemMetrics(SM_CXSCREEN);
-    int scrH = GetSystemMetrics(SM_CYSCREEN);
-    int posX = (scrW - winW) / 2;
-    int posY = (scrH - winH) / 2;
-
+    DWORD exStyle = gpuAvail ? WS_EX_NOREDIRECTIONBITMAP : 0;
+    DWORD style = WS_POPUP | WS_SYSMENU | WS_MINIMIZEBOX;
     hWnd_ = CreateWindowExW(
         exStyle,
         wc.lpszClassName,
-        L"CapsSwitch - Настройки",
+        L"CapsSwitch — Настройки",
         style,
-        posX, posY, winW, winH,
-        nullptr, nullptr, wc.hInstance, this
+        CW_USEDEFAULT, CW_USEDEFAULT, 660, 468,
+        nullptr, nullptr, hInst, this
     );
-
     if (!hWnd_) return false;
 
-    // Enable Windows 11 Dark Mode on Title Bar
-    BOOL darkMode = TRUE;
-    DwmSetWindowAttribute(hWnd_, DWMWA_USE_IMMERSIVE_DARK_MODE, &darkMode, sizeof(darkMode));
+    dpi_ = GetWindowDpiSafe(hWnd_);
+    float scale = dpi_ / 96.0f;
+    int pxW = static_cast<int>(std::round(WND_LOGICAL_W * scale));
+    int pxH = static_cast<int>(std::round(WND_LOGICAL_H * scale));
 
-    // Fonts setup
-    hFontTitle_ = CreateFontW(-20, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
-        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-        CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
+    int scrW = GetSystemMetrics(SM_CXSCREEN);
+    int scrH = GetSystemMetrics(SM_CYSCREEN);
+    SetWindowPos(hWnd_, nullptr, (scrW - pxW) / 2, (scrH - pxH) / 2, pxW, pxH,
+        SWP_NOZORDER | SWP_NOACTIVATE);
 
-    hFontSub_ = CreateFontW(-11, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
-        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-        CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
+    hasBackdrop_ = ApplyWindowBackdrop(hWnd_, BackdropKind::None, darkMode_);
+    appliedDark_ = darkMode_;
+    backdropApplied_ = true;
 
-    hFontRegular_ = CreateFontW(-13, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
-        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-        CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
+    surface_.EnsureSize(hWnd_, pxW, pxH);
 
-    hFontBold_ = CreateFontW(-13, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE,
-        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-        CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
+    appInput_.rect = RcAppInput();
+    appInput_.placeholder = L"telegram.exe";
+    exclInput_.rect = RcExclInput();
+    exclInput_.placeholder = L"cs2.exe";
 
-    // Tab 0: Per-app Layout Rules Controls
-    hEditAppProc_ = CreateWindowExW(
-        0, L"EDIT", L"",
-        WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL,
-        34, 411, 184, 26,
-        hWnd_, (HMENU)ID_EDIT_APP_PROC, wc.hInstance, nullptr
-    );
-    SendMessageW(hEditAppProc_, WM_SETFONT, (WPARAM)hFontRegular_, TRUE);
-    SendMessageW(hEditAppProc_, EM_SETCUEBANNER, TRUE, (LPARAM)L"telegram.exe");
-
-    hBtnPickApp_ = CreateWindowExW(
-        0, L"BUTTON", L"Окна ▾",
-        WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-        224, 411, 68, 26,
-        hWnd_, (HMENU)ID_BTN_PICK_APP, wc.hInstance, nullptr
-    );
-    SendMessageW(hBtnPickApp_, WM_SETFONT, (WPARAM)hFontRegular_, TRUE);
-
-    hBtnAppAdd_ = CreateWindowExW(
-        0, L"BUTTON", L"Добавить",
-        WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-        392, 411, 89, 26,
-        hWnd_, (HMENU)ID_BTN_APP_ADD, wc.hInstance, nullptr
-    );
-    SendMessageW(hBtnAppAdd_, WM_SETFONT, (WPARAM)hFontRegular_, TRUE);
-
-    hListAppLayouts_ = CreateWindowExW(
-        0, L"LISTBOX", L"",
-        WS_CHILD | WS_VISIBLE | WS_BORDER | WS_VSCROLL | LBS_NOTIFY | LBS_HASSTRINGS | LBS_NOINTEGRALHEIGHT,
-        34, 447, 350, 141,
-        hWnd_, (HMENU)ID_LIST_APP_LAYOUTS, wc.hInstance, nullptr
-    );
-    SendMessageW(hListAppLayouts_, WM_SETFONT, (WPARAM)hFontRegular_, TRUE);
-
-    hBtnAppToggleLang_ = CreateWindowExW(
-        0, L"BUTTON", L"EN ⇄ RU",
-        WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-        392, 447, 89, 26,
-        hWnd_, (HMENU)ID_BTN_APP_TOGGLE_LANG, wc.hInstance, nullptr
-    );
-    SendMessageW(hBtnAppToggleLang_, WM_SETFONT, (WPARAM)hFontRegular_, TRUE);
-
-    hBtnAppRemove_ = CreateWindowExW(
-        0, L"BUTTON", L"Удалить",
-        WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-        392, 481, 89, 26,
-        hWnd_, (HMENU)ID_BTN_APP_REMOVE, wc.hInstance, nullptr
-    );
-    SendMessageW(hBtnAppRemove_, WM_SETFONT, (WPARAM)hFontRegular_, TRUE);
-
-    // Tab 1: Exclusions Controls
-    hEditExcl_ = CreateWindowExW(
-        0, L"EDIT", L"",
-        WS_CHILD | WS_BORDER | ES_AUTOHSCROLL,
-        34, 411, 276, 26,
-        hWnd_, (HMENU)ID_EDIT_EXCL, wc.hInstance, nullptr
-    );
-    SendMessageW(hEditExcl_, WM_SETFONT, (WPARAM)hFontRegular_, TRUE);
-    SendMessageW(hEditExcl_, EM_SETCUEBANNER, TRUE, (LPARAM)L"cs2.exe");
-
-    hBtnPickExcl_ = CreateWindowExW(
-        0, L"BUTTON", L"Окна ▾",
-        WS_CHILD | BS_PUSHBUTTON,
-        316, 411, 68, 26,
-        hWnd_, (HMENU)ID_BTN_PICK_EXCL, wc.hInstance, nullptr
-    );
-    SendMessageW(hBtnPickExcl_, WM_SETFONT, (WPARAM)hFontRegular_, TRUE);
-
-    hBtnAdd_ = CreateWindowExW(
-        0, L"BUTTON", L"Добавить",
-        WS_CHILD | BS_PUSHBUTTON,
-        392, 411, 89, 26,
-        hWnd_, (HMENU)ID_BTN_ADD, wc.hInstance, nullptr
-    );
-    SendMessageW(hBtnAdd_, WM_SETFONT, (WPARAM)hFontRegular_, TRUE);
-
-    hListBox_ = CreateWindowExW(
-        0, L"LISTBOX", L"",
-        WS_CHILD | WS_BORDER | WS_VSCROLL | LBS_NOTIFY | LBS_HASSTRINGS | LBS_NOINTEGRALHEIGHT,
-        34, 447, 350, 141,
-        hWnd_, (HMENU)ID_LIST_EXCL, wc.hInstance, nullptr
-    );
-    SendMessageW(hListBox_, WM_SETFONT, (WPARAM)hFontRegular_, TRUE);
-
-    hBtnRemove_ = CreateWindowExW(
-        0, L"BUTTON", L"Удалить",
-        WS_CHILD | BS_PUSHBUTTON,
-        392, 447, 89, 26,
-        hWnd_, (HMENU)ID_BTN_REMOVE, wc.hInstance, nullptr
-    );
-    SendMessageW(hBtnRemove_, WM_SETFONT, (WPARAM)hFontRegular_, TRUE);
-
-    // Footer Buttons
-    hBtnSave_ = CreateWindowExW(
-        0, L"BUTTON", L"Сохранить",
-        WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON,
-        280, 620, 105, 32,
-        hWnd_, (HMENU)ID_BTN_SAVE, wc.hInstance, nullptr
-    );
-    SendMessageW(hBtnSave_, WM_SETFONT, (WPARAM)hFontBold_, TRUE);
-
-    hBtnClose_ = CreateWindowExW(
-        0, L"BUTTON", L"Закрыть",
-        WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-        395, 620, 90, 32,
-        hWnd_, (HMENU)ID_BTN_CLOSE, wc.hInstance, nullptr
-    );
-    SendMessageW(hBtnClose_, WM_SETFONT, (WPARAM)hFontRegular_, TRUE);
-
-    UpdateControls();
-    UpdateTabVisibility();
+    EnsureFormats();
+    RefreshSnapshot(true);
+    RefreshWindowIcons();
     return true;
 }
 
-void SettingsWindow::UpdateControls() {
-    if (!hListBox_ || !hListAppLayouts_) return;
-
-    const auto snapshot = Config::ConfigManager::Instance().GetSnapshot();
-
-    SendMessageW(hListAppLayouts_, LB_RESETCONTENT, 0, 0);
-    displayedAppRules_ = snapshot.appLayouts;
-    for (const auto& rule : displayedAppRules_) {
-        std::wstring label = (rule.layout == Config::AppLayout::Russian) ? L"[RU]  " : L"[EN]  ";
-        label += rule.processName;
-        SendMessageW(hListAppLayouts_, LB_ADDSTRING, 0, (LPARAM)label.c_str());
-    }
-
-    SendMessageW(hListBox_, LB_RESETCONTENT, 0, 0);
-    for (const auto& excl : snapshot.exclusions) {
-        SendMessageW(hListBox_, LB_ADDSTRING, 0, (LPARAM)excl.c_str());
-    }
-}
-
-void SettingsWindow::UpdateTabVisibility() {
-    if (!hWnd_) return;
-    int showApp = (activeTab_ == ProgramsTab::AppLayouts) ? SW_SHOW : SW_HIDE;
-    int showExcl = (activeTab_ == ProgramsTab::Exclusions) ? SW_SHOW : SW_HIDE;
-
-    ShowWindow(hEditAppProc_, showApp);
-    ShowWindow(hBtnPickApp_, showApp);
-    ShowWindow(hBtnAppAdd_, showApp);
-    ShowWindow(hListAppLayouts_, showApp);
-    ShowWindow(hBtnAppToggleLang_, showApp);
-    ShowWindow(hBtnAppRemove_, showApp);
-
-    ShowWindow(hEditExcl_, showExcl);
-    ShowWindow(hBtnPickExcl_, showExcl);
-    ShowWindow(hBtnAdd_, showExcl);
-    ShowWindow(hListBox_, showExcl);
-    ShowWindow(hBtnRemove_, showExcl);
-
-    RedrawWindow(hWnd_, nullptr, nullptr, RDW_INVALIDATE | RDW_ALLCHILDREN);
-}
-
-void SettingsWindow::ShowAppPickerMenu(HWND anchorBtn, HWND targetEdit) {
-    if (!anchorBtn || !targetEdit) return;
-
-    std::vector<std::wstring> procs = Platform::GetRunningWindowProcesses();
-    HMENU hMenu = CreatePopupMenu();
-    if (!hMenu) return;
-
-    if (procs.empty()) {
-        AppendMenuW(hMenu, MF_STRING | MF_GRAYED, 0, L"(Нет активных окон)");
-    } else {
-        size_t limit = (procs.size() < 50) ? procs.size() : 50;
-        for (size_t i = 0; i < limit; ++i) {
-            AppendMenuW(hMenu, MF_STRING, ID_PICKER_PROC_BASE + static_cast<UINT>(i), procs[i].c_str());
-        }
-    }
-
-    AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(hMenu, MF_STRING, ID_PICKER_BROWSE, L"Выбрать файл .exe...");
-
-    RECT rcBtn = {};
-    GetWindowRect(anchorBtn, &rcBtn);
-    UINT cmd = TrackPopupMenuEx(
-        hMenu,
-        TPM_RETURNCMD | TPM_LEFTALIGN | TPM_TOPALIGN | TPM_NONOTIFY,
-        rcBtn.left,
-        rcBtn.bottom,
-        hWnd_,
-        nullptr
-    );
-    DestroyMenu(hMenu);
-
-    if (cmd == ID_PICKER_BROWSE) {
-        wchar_t fileBuf[MAX_PATH] = { 0 };
-        OPENFILENAMEW ofn = {};
-        ofn.lStructSize = sizeof(ofn);
-        ofn.hwndOwner = hWnd_;
-        ofn.lpstrFilter = L"Программы (*.exe)\0*.exe\0Все файлы (*.*)\0*.*\0";
-        ofn.lpstrFile = fileBuf;
-        ofn.nMaxFile = MAX_PATH;
-        ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
-        if (GetOpenFileNameW(&ofn)) {
-            std::wstring fullPath(fileBuf);
-            size_t lastSlash = fullPath.find_last_of(L"\\/");
-            std::wstring fileName = (lastSlash != std::wstring::npos) ? fullPath.substr(lastSlash + 1) : fullPath;
-            SetWindowTextW(targetEdit, Platform::ToLower(fileName).c_str());
-            SetFocus(targetEdit);
-        }
-    } else if (cmd >= ID_PICKER_PROC_BASE && cmd < ID_PICKER_PROC_BASE + procs.size()) {
-        SetWindowTextW(targetEdit, procs[cmd - ID_PICKER_PROC_BASE].c_str());
-        SetFocus(targetEdit);
-    }
-}
-
-void SettingsWindow::ToggleSelectedAppLayout() {
-    if (!hListAppLayouts_) return;
-    int sel = (int)SendMessageW(hListAppLayouts_, LB_GETCURSEL, 0, 0);
-    if (sel < 0 || static_cast<size_t>(sel) >= displayedAppRules_.size()) return;
-
-    const auto& rule = displayedAppRules_[sel];
-    std::wstring proc = rule.processName;
-    Config::AppLayout nextLayout = (rule.layout == Config::AppLayout::Russian)
-        ? Config::AppLayout::English
-        : Config::AppLayout::Russian;
-
-    Config::ConfigManager::Instance().Update([&proc, nextLayout](Config::AppConfig& cfg) {
-        cfg.SetAppLayout(proc, nextLayout);
-    });
-    Config::ConfigManager::Instance().Save();
-    UpdateControls();
-    SendMessageW(hListAppLayouts_, LB_SETCURSEL, sel, 0);
-    InvalidateRect(hWnd_, nullptr, FALSE);
-}
-
 void SettingsWindow::Show() {
-    if (!hWnd_) Create();
+    if (!hWnd_ || !IsWindow(hWnd_)) {
+        Create();
+    }
+    if (!hWnd_) return;
 
-    // Center on the monitor containing the cursor using actual window dimensions
-    RECT rcActual = {};
-    GetWindowRect(hWnd_, &rcActual);
-    int winW = rcActual.right - rcActual.left;
-    int winH = rcActual.bottom - rcActual.top;
+    darkMode_ = IsSystemDarkMode();
+    if (!backdropApplied_ || darkMode_ != appliedDark_) {
+        hasBackdrop_ = ApplyWindowBackdrop(hWnd_, BackdropKind::None, darkMode_);
+        appliedDark_ = darkMode_;
+        backdropApplied_ = true;
+    }
 
     POINT cursorPt = {};
     GetCursorPos(&cursorPt);
@@ -378,26 +299,1394 @@ void SettingsWindow::Show() {
     MONITORINFO mi = {};
     mi.cbSize = sizeof(MONITORINFO);
     if (GetMonitorInfoW(hMon, &mi)) {
+        dpi_ = GetWindowDpiSafe(hWnd_);
+        float scale = dpi_ / 96.0f;
+        int winW = static_cast<int>(std::round(WND_LOGICAL_W * scale));
+        int winH = static_cast<int>(std::round(WND_LOGICAL_H * scale));
         RECT wr = mi.rcWork;
         int posX = wr.left + ((wr.right - wr.left) - winW) / 2;
         int posY = wr.top + ((wr.bottom - wr.top) - winH) / 2;
-        SetWindowPos(hWnd_, nullptr, posX, posY, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+        SetWindowPos(hWnd_, nullptr, posX, posY, winW, winH, SWP_NOZORDER | SWP_NOACTIVATE);
+        surface_.EnsureSize(hWnd_, winW, winH);
     }
 
-    UpdateControls();
-    UpdateTabVisibility();
-    ShowWindow(hWnd_, SW_SHOW);
+    RefreshSnapshot(true);
+    RefreshWindowIcons();
+    ShowWindow(hWnd_, SW_SHOWNORMAL);
     SetForegroundWindow(hWnd_);
+    RenderNow();
 }
 
 void SettingsWindow::Hide() {
-    if (hWnd_) {
+    FluentMenu::Instance().Hide();
+    StopAnimation();
+    appInput_.focused = false;
+    exclInput_.focused = false;
+    if (hWnd_ && IsWindow(hWnd_)) {
         ShowWindow(hWnd_, SW_HIDE);
     }
 }
 
+void SettingsWindow::Destroy() {
+    StopAnimation();
+    if (hWnd_ && IsWindow(hWnd_)) {
+        DestroyWindow(hWnd_);
+        hWnd_ = nullptr;
+    }
+    backdropApplied_ = false;
+    if (hIconBig_)   { DestroyIcon(hIconBig_);   hIconBig_ = nullptr; }
+    if (hIconSmall_) { DestroyIcon(hIconSmall_); hIconSmall_ = nullptr; }
+    surface_.Release();
+    ReleaseFormats();
+}
+
 bool SettingsWindow::IsVisible() const {
-    return (hWnd_ && IsWindowVisible(hWnd_));
+    return hWnd_ && IsWindowVisible(hWnd_);
+}
+
+void SettingsWindow::NotifyStatusChanged(WORD langId, bool isPaused) {
+    bool isRu = ((langId & 0xFF) == 0x19);
+    if (hWnd_ && IsWindow(hWnd_)) {
+        PostMessageW(hWnd_, WM_SETTINGS_STATUS_SYNC, isRu ? 1 : 0, isPaused ? 1 : 0);
+    }
+}
+
+void SettingsWindow::EnsureAnimationRunning() {
+    if (!animRunning_ && hWnd_ && IsWindowVisible(hWnd_)) {
+        lastTickUs_ = Platform::GetCurrentTimeMicroseconds();
+        SetTimer(hWnd_, TIMER_ANIM, 10, nullptr);
+        animRunning_ = true;
+    }
+}
+
+void SettingsWindow::StopAnimation() {
+    if (animRunning_ && hWnd_) {
+        KillTimer(hWnd_, TIMER_ANIM);
+        animRunning_ = false;
+    }
+}
+
+void SettingsWindow::RequestRedraw() {
+    if (!hWnd_) return;
+    if (surface_.IsGpu()) {
+        RenderNow();
+    } else {
+        InvalidateRect(hWnd_, nullptr, FALSE);
+    }
+}
+
+void SettingsWindow::SwitchTab(SettingsTab nextTab) {
+    if (activeTab_ == nextTab) return;
+    prevTab_ = activeTab_;
+    pageDir_ = (static_cast<int>(nextTab) > static_cast<int>(activeTab_)) ? 1 : -1;
+    activeTab_ = nextTab;
+    pageTransition_ = 0.0f;
+    appInput_.focused = false;
+    exclInput_.focused = false;
+    FluentMenu::Instance().Hide();
+    EnsureAnimationRunning();
+    RequestRedraw();
+}
+
+void SettingsWindow::TriggerSavedToast() {
+    toastAlpha_ = 1.0f;
+    toastHoldSec_ = 1.3f;
+    EnsureAnimationRunning();
+}
+
+void SettingsWindow::TogglePause() {
+    bool next = !Core::HookManager::Instance().IsPaused();
+    Core::HookManager::Instance().SetPaused(next);
+    livePaused_ = next;
+    HWND fg = GetForegroundWindow();
+    WORD lang = Core::LayoutEngine::Instance().GetLayout(fg);
+    Platform::TrayIcon::Instance().UpdateLanguage(lang, next);
+    EnsureAnimationRunning();
+    RequestRedraw();
+}
+
+void SettingsWindow::TickAnimations(float dt) {
+    bool needMore = false;
+
+    auto animTo = [&](float& val, float target, float speed) {
+        float next = ExpDecay(val, target, speed, dt);
+        if (next != target) needMore = true;
+        val = next;
+    };
+
+    const bool targets[5] = {
+        cfg_.autoSwitch, cfg_.capsLockSwitch, cfg_.doubleCapsConvert, cfg_.passwordGuard, cfg_.autostart
+    };
+    for (int i = 0; i < 5; ++i) {
+        animTo(toggleAnim_[i], targets[i] ? 1.0f : 0.0f, 34.0f);
+
+        bool rowHov = (activeTab_ == SettingsTab::General &&
+            hovered_.zone == static_cast<HitZone>(static_cast<int>(HitZone::ToggleRow0) + i));
+        bool rowPrs = (activeTab_ == SettingsTab::General &&
+            pressed_.zone == static_cast<HitZone>(static_cast<int>(HitZone::ToggleRow0) + i));
+        animTo(rowHover_[i], rowHov ? 1.0f : 0.0f, 38.0f);
+        animTo(toggleHover_[i], rowHov ? 1.0f : 0.0f, 38.0f);
+        animTo(togglePress_[i], rowPrs ? 1.0f : 0.0f, 40.0f);
+    }
+
+    for (int i = 0; i < 3; ++i) {
+        bool nHov = (hovered_.zone == static_cast<HitZone>(static_cast<int>(HitZone::NavGeneral) + i));
+        animTo(navHover_[i], nHov ? 1.0f : 0.0f, 38.0f);
+    }
+
+    D2D1_RECT_F targetNav = RcNavItem(static_cast<int>(activeTab_));
+    float targetIndY = targetNav.top + (NAV_ITEM_H - 16.0f) * 0.5f;
+    animTo(navIndicatorY_, targetIndY, 38.0f);
+
+    if (pageTransition_ < 1.0f) {
+        pageTransition_ = (std::min)(1.0f, pageTransition_ + dt / 0.11f);
+        if (pageTransition_ < 1.0f) needMore = true;
+    }
+
+    animTo(captionHover_[0], hovered_.zone == HitZone::BtnMinimize ? 1.0f : 0.0f, 38.0f);
+    animTo(captionHover_[1], hovered_.zone == HitZone::BtnClose ? 1.0f : 0.0f, 38.0f);
+    animTo(railPauseHover_, hovered_.zone == HitZone::RailPauseBtn ? 1.0f : 0.0f, 38.0f);
+    animTo(statusPausedAnim_, livePaused_ ? 1.0f : 0.0f, 28.0f);
+    animTo(langChipRuAnim_, liveIsRu_ ? 1.0f : 0.0f, 30.0f);
+    animTo(langSelectorAnim_, selectedAppLayout_ == Config::AppLayout::Russian ? 1.0f : 0.0f, 38.0f);
+
+    bool pickHov = (hovered_.zone == HitZone::AppPickBtn || hovered_.zone == HitZone::ExclPickBtn);
+    bool addHov = (hovered_.zone == HitZone::AppAddBtn || hovered_.zone == HitZone::ExclAddBtn);
+    animTo(btnPickHover_, pickHov ? 1.0f : 0.0f, 38.0f);
+    animTo(btnAddHover_, addHov ? 1.0f : 0.0f, 38.0f);
+
+    animTo(appInput_.focusAnim, appInput_.focused ? 1.0f : 0.0f, 38.0f);
+    animTo(appInput_.hoverAnim, appInput_.hovered ? 1.0f : 0.0f, 38.0f);
+    animTo(exclInput_.focusAnim, exclInput_.focused ? 1.0f : 0.0f, 38.0f);
+    animTo(exclInput_.hoverAnim, exclInput_.hovered ? 1.0f : 0.0f, 38.0f);
+
+    if (appInput_.focused) {
+        appInput_.caretPhase += dt * 1.9f;
+        if (appInput_.caretPhase >= 2.0f) appInput_.caretPhase -= 2.0f;
+        needMore = true;
+    }
+    if (exclInput_.focused) {
+        exclInput_.caretPhase += dt * 1.9f;
+        if (exclInput_.caretPhase >= 2.0f) exclInput_.caretPhase -= 2.0f;
+        needMore = true;
+    }
+
+    float maxAppScroll = (std::max)(0.0f, static_cast<float>(cfg_.appLayouts.size()) * APP_ROW_H + 8.0f - LIST_H);
+    appScrollTarget_ = (std::clamp)(appScrollTarget_, 0.0f, maxAppScroll);
+    animTo(appScrollY_, appScrollTarget_, 32.0f);
+
+    float maxExclScroll = (std::max)(0.0f, static_cast<float>(cfg_.exclusions.size()) * EXCL_ROW_H + 8.0f - LIST_H);
+    exclScrollTarget_ = (std::clamp)(exclScrollTarget_, 0.0f, maxExclScroll);
+    animTo(exclScrollY_, exclScrollTarget_, 32.0f);
+
+    if (toastHoldSec_ > 0.0f) {
+        toastHoldSec_ = (std::max)(0.0f, toastHoldSec_ - dt);
+        needMore = true;
+    } else if (toastAlpha_ > 0.0f) {
+        animTo(toastAlpha_, 0.0f, 14.0f);
+    }
+
+    if (!needMore) {
+        StopAnimation();
+    }
+}
+
+void SettingsWindow::ShowAppPickerMenu(const D2D1_RECT_F& anchorDip, bool forAppLayouts) {
+    std::vector<std::wstring> procs = Platform::GetRunningWindowProcesses();
+    std::vector<FluentMenuItem> items;
+
+    if (procs.empty()) {
+        items.push_back({ 0, L"(Нет активных окон)", L"", FluentIcon::None, false, false, true });
+    } else {
+        size_t limit = (std::min)(procs.size(), static_cast<size_t>(40));
+        for (size_t i = 0; i < limit; ++i) {
+            items.push_back({ ID_PICKER_PROC_BASE + static_cast<UINT>(i), procs[i], L"",
+                FluentIcon::WindowPicker, false, false, false });
+        }
+    }
+    items.push_back({ 0, L"", L"", FluentIcon::None, true, false, false });
+    items.push_back({ ID_PICKER_BROWSE, L"Выбрать файл .exe...", L"", FluentIcon::Folder, false, false, false });
+
+    float scale = dpi_ / 96.0f;
+    POINT pt = {
+        static_cast<LONG>(std::round(anchorDip.left * scale)),
+        static_cast<LONG>(std::round((anchorDip.bottom + 4.0f) * scale))
+    };
+    ClientToScreen(hWnd_, &pt);
+
+    FluentMenuHeader header;
+    header.show = false;
+
+    FluentMenu::Instance().Show(hWnd_, pt, false, header, items, [this, procs, forAppLayouts](UINT cmd) {
+        FluentTextInput& target = forAppLayouts ? appInput_ : exclInput_;
+        if (cmd == ID_PICKER_BROWSE) {
+            wchar_t fileBuf[MAX_PATH] = { 0 };
+            OPENFILENAMEW ofn = {};
+            ofn.lStructSize = sizeof(ofn);
+            ofn.hwndOwner = hWnd_;
+            ofn.lpstrFilter = L"Программы (*.exe)\0*.exe\0Все файлы (*.*)\0*.*\0";
+            ofn.lpstrFile = fileBuf;
+            ofn.nMaxFile = MAX_PATH;
+            ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+            if (GetOpenFileNameW(&ofn)) {
+                std::wstring fullPath(fileBuf);
+                size_t lastSlash = fullPath.find_last_of(L"\\/");
+                std::wstring fileName = (lastSlash != std::wstring::npos) ? fullPath.substr(lastSlash + 1) : fullPath;
+                target.text = Platform::ToLower(fileName);
+                target.caretPos = target.text.size();
+                target.selAnchor = target.caretPos;
+                target.focused = true;
+                target.caretPhase = 0.0f;
+                EnsureInputCaretVisible(target);
+                EnsureAnimationRunning();
+                RequestRedraw();
+            }
+        } else if (cmd >= ID_PICKER_PROC_BASE && cmd < ID_PICKER_PROC_BASE + procs.size()) {
+            target.text = procs[cmd - ID_PICKER_PROC_BASE];
+            target.caretPos = target.text.size();
+            target.selAnchor = target.caretPos;
+            target.focused = true;
+            target.caretPhase = 0.0f;
+            EnsureInputCaretVisible(target);
+            EnsureAnimationRunning();
+            RequestRedraw();
+        }
+    });
+}
+
+void SettingsWindow::AddAppLayoutFromInput() {
+    if (appInput_.text.empty()) return;
+    std::wstring proc = appInput_.text;
+    Config::AppLayout chosen = selectedAppLayout_;
+    Config::ConfigManager::Instance().Update([&proc, chosen](Config::AppConfig& cfg) {
+        cfg.SetAppLayout(proc, chosen);
+    });
+    Config::ConfigManager::Instance().Save();
+    appInput_.text.clear();
+    appInput_.caretPos = 0;
+    appInput_.selAnchor = 0;
+    appInput_.scrollX = 0.0f;
+    RefreshSnapshot(false);
+    TriggerSavedToast();
+    RequestRedraw();
+}
+
+void SettingsWindow::AddExclusionFromInput() {
+    if (exclInput_.text.empty()) return;
+    std::wstring proc = exclInput_.text;
+    Config::ConfigManager::Instance().Update([&proc](Config::AppConfig& cfg) {
+        cfg.AddExclusion(proc);
+    });
+    Config::ConfigManager::Instance().Save();
+    exclInput_.text.clear();
+    exclInput_.caretPos = 0;
+    exclInput_.selAnchor = 0;
+    exclInput_.scrollX = 0.0f;
+    RefreshSnapshot(false);
+    TriggerSavedToast();
+    RequestRedraw();
+}
+
+void SettingsWindow::ToggleAppRuleLayout(size_t index) {
+    if (index >= cfg_.appLayouts.size()) return;
+    std::wstring proc = cfg_.appLayouts[index].processName;
+    Config::AppLayout next = (cfg_.appLayouts[index].layout == Config::AppLayout::Russian)
+        ? Config::AppLayout::English
+        : Config::AppLayout::Russian;
+    Config::ConfigManager::Instance().Update([&proc, next](Config::AppConfig& cfg) {
+        cfg.SetAppLayout(proc, next);
+    });
+    Config::ConfigManager::Instance().Save();
+    RefreshSnapshot(false);
+    TriggerSavedToast();
+    RequestRedraw();
+}
+
+void SettingsWindow::RemoveAppRule(size_t index) {
+    if (index >= cfg_.appLayouts.size()) return;
+    std::wstring proc = cfg_.appLayouts[index].processName;
+    Config::ConfigManager::Instance().Update([&proc](Config::AppConfig& cfg) {
+        cfg.RemoveAppLayout(proc);
+    });
+    Config::ConfigManager::Instance().Save();
+    RefreshSnapshot(false);
+    TriggerSavedToast();
+    RequestRedraw();
+}
+
+void SettingsWindow::RemoveExclusion(size_t index) {
+    if (index >= cfg_.exclusions.size()) return;
+    std::wstring proc = cfg_.exclusions[index];
+    Config::ConfigManager::Instance().Update([&proc](Config::AppConfig& cfg) {
+        cfg.RemoveExclusion(proc);
+    });
+    Config::ConfigManager::Instance().Save();
+    RefreshSnapshot(false);
+    TriggerSavedToast();
+    RequestRedraw();
+}
+
+FluentTextInput* SettingsWindow::ActiveTextInput() {
+    if (activeTab_ == SettingsTab::AppLayouts && appInput_.focused) return &appInput_;
+    if (activeTab_ == SettingsTab::Exclusions && exclInput_.focused) return &exclInput_;
+    return nullptr;
+}
+
+size_t SettingsWindow::HitTestTextCaret(const FluentTextInput& input, float localX) {
+    if (input.text.empty()) return 0;
+    IDWriteFactory* dw = FluentGraphics::Instance().DWriteFactory();
+    if (!dw || !fmtInput_) return input.text.size();
+
+    IDWriteTextLayout* layout = nullptr;
+    if (FAILED(dw->CreateTextLayout(input.text.c_str(), static_cast<UINT32>(input.text.size()),
+        fmtInput_, 4096.0f, input.rect.bottom - input.rect.top, &layout)) || !layout) {
+        return input.text.size();
+    }
+
+    BOOL isTrailing = FALSE;
+    BOOL isInside = FALSE;
+    DWRITE_HIT_TEST_METRICS metrics = {};
+    float relX = (localX - (input.rect.left + 10.0f)) + input.scrollX;
+    layout->HitTestPoint(relX, 12.0f, &isTrailing, &isInside, &metrics);
+    layout->Release();
+
+    size_t pos = metrics.textPosition + (isTrailing ? 1 : 0);
+    return (std::min)(pos, input.text.size());
+}
+
+void SettingsWindow::EnsureInputCaretVisible(FluentTextInput& input) {
+    float innerW = (input.rect.right - input.rect.left) - 20.0f;
+    if (innerW <= 0.0f) return;
+
+    IDWriteFactory* dw = FluentGraphics::Instance().DWriteFactory();
+    if (!dw || !fmtInput_) return;
+
+    IDWriteTextLayout* layout = nullptr;
+    if (FAILED(dw->CreateTextLayout(input.text.c_str(), static_cast<UINT32>(input.text.size()),
+        fmtInput_, 4096.0f, input.rect.bottom - input.rect.top, &layout)) || !layout) {
+        return;
+    }
+
+    DWRITE_HIT_TEST_METRICS cm = {};
+    float caretX = 0.0f;
+    float caretY = 0.0f;
+    layout->HitTestTextPosition(static_cast<UINT32>(input.caretPos), FALSE, &caretX, &caretY, &cm);
+
+    DWRITE_TEXT_METRICS tm = {};
+    layout->GetMetrics(&tm);
+    layout->Release();
+
+    if (caretX - input.scrollX > innerW - 4.0f) {
+        input.scrollX = caretX - (innerW - 4.0f);
+    } else if (caretX - input.scrollX < 0.0f) {
+        input.scrollX = caretX;
+    }
+    float maxScroll = (std::max)(0.0f, tm.widthIncludingTrailingWhitespace - innerW + 8.0f);
+    input.scrollX = (std::clamp)(input.scrollX, 0.0f, maxScroll);
+}
+
+bool SettingsWindow::HandleInputKeyDown(FluentTextInput& input, WPARAM vk) {
+    bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+    bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+
+    auto deleteSelection = [&]() -> bool {
+        if (!input.HasSelection()) return false;
+        size_t s = 0, e = 0;
+        input.GetSelectionRange(s, e);
+        input.text.erase(s, e - s);
+        input.caretPos = s;
+        input.selAnchor = s;
+        return true;
+    };
+
+    switch (vk) {
+    case VK_LEFT:
+        if (input.caretPos > 0) --input.caretPos;
+        if (!shift) input.ClearSelection();
+        break;
+    case VK_RIGHT:
+        if (input.caretPos < input.text.size()) ++input.caretPos;
+        if (!shift) input.ClearSelection();
+        break;
+    case VK_HOME:
+        input.caretPos = 0;
+        if (!shift) input.ClearSelection();
+        break;
+    case VK_END:
+        input.caretPos = input.text.size();
+        if (!shift) input.ClearSelection();
+        break;
+    case VK_BACK:
+        if (!deleteSelection() && input.caretPos > 0) {
+            input.text.erase(input.caretPos - 1, 1);
+            --input.caretPos;
+            input.ClearSelection();
+        }
+        break;
+    case VK_DELETE:
+        if (!deleteSelection() && input.caretPos < input.text.size()) {
+            input.text.erase(input.caretPos, 1);
+            input.ClearSelection();
+        }
+        break;
+    case VK_RETURN:
+        if (&input == &appInput_) AddAppLayoutFromInput();
+        else AddExclusionFromInput();
+        return true;
+    case VK_ESCAPE:
+        input.focused = false;
+        EnsureAnimationRunning();
+        RequestRedraw();
+        return true;
+    case 'A':
+        if (ctrl) {
+            input.selAnchor = 0;
+            input.caretPos = input.text.size();
+            break;
+        }
+        return false;
+    case 'C':
+    case 'X':
+        if (ctrl && input.HasSelection()) {
+            size_t s = 0, e = 0;
+            input.GetSelectionRange(s, e);
+            std::wstring sub = input.text.substr(s, e - s);
+            if (OpenClipboard(hWnd_)) {
+                EmptyClipboard();
+                HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, (sub.size() + 1) * sizeof(wchar_t));
+                if (hMem) {
+                    void* ptr = GlobalLock(hMem);
+                    if (ptr) {
+                        memcpy(ptr, sub.c_str(), (sub.size() + 1) * sizeof(wchar_t));
+                        GlobalUnlock(hMem);
+                        SetClipboardData(CF_UNICODETEXT, hMem);
+                    }
+                }
+                CloseClipboard();
+            }
+            if (vk == 'X') deleteSelection();
+            break;
+        }
+        return false;
+    case 'V':
+        if (ctrl && OpenClipboard(hWnd_)) {
+            HANDLE hData = GetClipboardData(CF_UNICODETEXT);
+            if (hData) {
+                const wchar_t* clip = static_cast<const wchar_t*>(GlobalLock(hData));
+                if (clip) {
+                    deleteSelection();
+                    std::wstring paste;
+                    for (const wchar_t* p = clip; *p; ++p) {
+                        if (*p >= 32 && *p != L'\r' && *p != L'\n') paste.push_back(*p);
+                    }
+                    input.text.insert(input.caretPos, paste);
+                    input.caretPos += paste.size();
+                    input.ClearSelection();
+                    GlobalUnlock(hData);
+                }
+            }
+            CloseClipboard();
+            break;
+        }
+        return false;
+    default:
+        return false;
+    }
+
+    input.caretPhase = 0.0f;
+    EnsureInputCaretVisible(input);
+    RequestRedraw();
+    return true;
+}
+
+bool SettingsWindow::HandleInputChar(FluentTextInput& input, wchar_t ch) {
+    if (ch < 32 || ch == 127) return false;
+    if ((GetKeyState(VK_CONTROL) & 0x8000) != 0) return false;
+
+    if (input.HasSelection()) {
+        size_t s = 0, e = 0;
+        input.GetSelectionRange(s, e);
+        input.text.erase(s, e - s);
+        input.caretPos = s;
+    }
+    if (input.text.size() < 128) {
+        input.text.insert(input.caretPos, 1, ch);
+        ++input.caretPos;
+    }
+    input.ClearSelection();
+    input.caretPhase = 0.0f;
+    EnsureInputCaretVisible(input);
+    RequestRedraw();
+    return true;
+}
+
+SettingsWindow::HitResult SettingsWindow::HitTest(float dipX, float dipY) const {
+    if (PointInRectF(RcBtnMinimize(), dipX, dipY)) return { HitZone::BtnMinimize, -1 };
+    if (PointInRectF(RcBtnClose(), dipX, dipY))    return { HitZone::BtnClose, -1 };
+
+    if (PointInRectF(RcNavItem(0), dipX, dipY))    return { HitZone::NavGeneral, -1 };
+    if (PointInRectF(RcNavItem(1), dipX, dipY))    return { HitZone::NavAppLayouts, -1 };
+    if (PointInRectF(RcNavItem(2), dipX, dipY))    return { HitZone::NavExclusions, -1 };
+    if (PointInRectF(RcRailPauseBtn(), dipX, dipY)) return { HitZone::RailPauseBtn, -1 };
+
+    if (activeTab_ == SettingsTab::General) {
+        for (int i = 0; i < 5; ++i) {
+            if (PointInRectF(RcToggleRow(i), dipX, dipY)) {
+                return { static_cast<HitZone>(static_cast<int>(HitZone::ToggleRow0) + i), i };
+            }
+        }
+    } else if (activeTab_ == SettingsTab::AppLayouts) {
+        if (PointInRectF(RcAppInput(), dipX, dipY))  return { HitZone::AppInput, -1 };
+        if (PointInRectF(RcAppPick(), dipX, dipY))   return { HitZone::AppPickBtn, -1 };
+        if (PointInRectF(RcAppLangEn(), dipX, dipY)) return { HitZone::AppLangEn, -1 };
+        if (PointInRectF(RcAppLangRu(), dipX, dipY)) return { HitZone::AppLangRu, -1 };
+        if (PointInRectF(RcAppAdd(), dipX, dipY))    return { HitZone::AppAddBtn, -1 };
+
+        D2D1_RECT_F listRc = RcListBox();
+        if (PointInRectF(listRc, dipX, dipY)) {
+            float relY = (dipY - listRc.top - 4.0f) + appScrollY_;
+            int row = static_cast<int>(std::floor(relY / APP_ROW_H));
+            if (relY >= 0.0f && row >= 0 && static_cast<size_t>(row) < cfg_.appLayouts.size()) {
+                float rowY = listRc.top + 4.0f + row * APP_ROW_H - appScrollY_;
+                D2D1_RECT_F delRc = D2D1::RectF(listRc.right - 40.0f, rowY + 6.0f, listRc.right - 12.0f, rowY + APP_ROW_H - 6.0f);
+                D2D1_RECT_F badgeRc = D2D1::RectF(listRc.right - 92.0f, rowY + 9.0f, listRc.right - 48.0f, rowY + APP_ROW_H - 9.0f);
+                if (PointInRectF(delRc, dipX, dipY))   return { HitZone::AppRowDelete, row };
+                if (PointInRectF(badgeRc, dipX, dipY)) return { HitZone::AppRowBadge, row };
+                return { HitZone::AppRow, row };
+            }
+        }
+    } else if (activeTab_ == SettingsTab::Exclusions) {
+        if (PointInRectF(RcExclInput(), dipX, dipY)) return { HitZone::ExclInput, -1 };
+        if (PointInRectF(RcExclPick(), dipX, dipY))  return { HitZone::ExclPickBtn, -1 };
+        if (PointInRectF(RcExclAdd(), dipX, dipY))   return { HitZone::ExclAddBtn, -1 };
+
+        D2D1_RECT_F listRc = RcListBox();
+        if (PointInRectF(listRc, dipX, dipY)) {
+            float relY = (dipY - listRc.top - 4.0f) + exclScrollY_;
+            int row = static_cast<int>(std::floor(relY / EXCL_ROW_H));
+            if (relY >= 0.0f && row >= 0 && static_cast<size_t>(row) < cfg_.exclusions.size()) {
+                float rowY = listRc.top + 4.0f + row * EXCL_ROW_H - exclScrollY_;
+                D2D1_RECT_F delRc = D2D1::RectF(listRc.right - 40.0f, rowY + 6.0f, listRc.right - 12.0f, rowY + EXCL_ROW_H - 6.0f);
+                if (PointInRectF(delRc, dipX, dipY)) return { HitZone::ExclRowDelete, row };
+                return { HitZone::ExclRow, row };
+            }
+        }
+    }
+
+    return { HitZone::None, -1 };
+}
+
+void SettingsWindow::HandleMouseMove(float dipX, float dipY) {
+    if (appInput_.dragging) {
+        appInput_.caretPos = HitTestTextCaret(appInput_, dipX);
+        EnsureInputCaretVisible(appInput_);
+        RequestRedraw();
+        return;
+    }
+    if (exclInput_.dragging) {
+        exclInput_.caretPos = HitTestTextCaret(exclInput_, dipX);
+        EnsureInputCaretVisible(exclInput_);
+        RequestRedraw();
+        return;
+    }
+
+    HitResult hit = HitTest(dipX, dipY);
+    bool appHov = (hit.zone == HitZone::AppInput);
+    bool exclHov = (hit.zone == HitZone::ExclInput);
+
+    if (hit.zone != hovered_.zone || hit.index != hovered_.index ||
+        appHov != appInput_.hovered || exclHov != exclInput_.hovered) {
+        hovered_ = hit;
+        appInput_.hovered = appHov;
+        exclInput_.hovered = exclHov;
+        EnsureAnimationRunning();
+        RequestRedraw();
+    }
+}
+
+void SettingsWindow::HandleMouseDown(float dipX, float dipY, bool doubleClick) {
+    SetFocus(hWnd_);
+    HitResult hit = HitTest(dipX, dipY);
+    pressed_ = hit;
+
+    bool prevAppFocus = appInput_.focused;
+    bool prevExclFocus = exclInput_.focused;
+    appInput_.focused = (hit.zone == HitZone::AppInput);
+    exclInput_.focused = (hit.zone == HitZone::ExclInput);
+
+    if (appInput_.focused) {
+        if (doubleClick) {
+            appInput_.selAnchor = 0;
+            appInput_.caretPos = appInput_.text.size();
+        } else {
+            appInput_.caretPos = HitTestTextCaret(appInput_, dipX);
+            if ((GetKeyState(VK_SHIFT) & 0x8000) == 0) appInput_.ClearSelection();
+            appInput_.dragging = true;
+            SetCapture(hWnd_);
+        }
+        appInput_.caretPhase = 0.0f;
+        EnsureInputCaretVisible(appInput_);
+    } else if (exclInput_.focused) {
+        if (doubleClick) {
+            exclInput_.selAnchor = 0;
+            exclInput_.caretPos = exclInput_.text.size();
+        } else {
+            exclInput_.caretPos = HitTestTextCaret(exclInput_, dipX);
+            if ((GetKeyState(VK_SHIFT) & 0x8000) == 0) exclInput_.ClearSelection();
+            exclInput_.dragging = true;
+            SetCapture(hWnd_);
+        }
+        exclInput_.caretPhase = 0.0f;
+        EnsureInputCaretVisible(exclInput_);
+    } else if (doubleClick && hit.zone == HitZone::AppRow && hit.index >= 0) {
+        ToggleAppRuleLayout(static_cast<size_t>(hit.index));
+    }
+
+    if (prevAppFocus != appInput_.focused || prevExclFocus != exclInput_.focused || hit.zone != HitZone::None) {
+        EnsureAnimationRunning();
+        RequestRedraw();
+    }
+}
+
+void SettingsWindow::HandleMouseUp(float dipX, float dipY) {
+    if (appInput_.dragging || exclInput_.dragging) {
+        appInput_.dragging = false;
+        exclInput_.dragging = false;
+        ReleaseCapture();
+    }
+
+    HitResult hit = HitTest(dipX, dipY);
+    HitResult prs = pressed_;
+    pressed_ = {};
+
+    if (hit.zone != prs.zone || hit.index != prs.index) {
+        EnsureAnimationRunning();
+        RequestRedraw();
+        return;
+    }
+
+    switch (hit.zone) {
+    case HitZone::BtnMinimize:
+        ShowWindow(hWnd_, SW_MINIMIZE);
+        return;
+    case HitZone::BtnClose:
+        Config::ConfigManager::Instance().Save();
+        Hide();
+        return;
+    case HitZone::NavGeneral:
+        SwitchTab(SettingsTab::General);
+        return;
+    case HitZone::NavAppLayouts:
+        SwitchTab(SettingsTab::AppLayouts);
+        return;
+    case HitZone::NavExclusions:
+        SwitchTab(SettingsTab::Exclusions);
+        return;
+    case HitZone::RailPauseBtn:
+        TogglePause();
+        return;
+    case HitZone::ToggleRow0:
+    case HitZone::ToggleRow1:
+    case HitZone::ToggleRow2:
+    case HitZone::ToggleRow3:
+    case HitZone::ToggleRow4: {
+        int idx = hit.index;
+        Config::ConfigManager::Instance().Update([idx](Config::AppConfig& cfg) {
+            if (idx == 0) cfg.autoSwitch = !cfg.autoSwitch;
+            else if (idx == 1) cfg.capsLockSwitch = !cfg.capsLockSwitch;
+            else if (idx == 2) cfg.doubleCapsConvert = !cfg.doubleCapsConvert;
+            else if (idx == 3) cfg.passwordGuard = !cfg.passwordGuard;
+            else if (idx == 4) cfg.autostart = !cfg.autostart;
+        });
+        Config::ConfigManager::Instance().Save();
+        RefreshSnapshot(false);
+        TriggerSavedToast();
+        RequestRedraw();
+        return;
+    }
+    case HitZone::AppPickBtn:
+        ShowAppPickerMenu(RcAppPick(), true);
+        return;
+    case HitZone::AppLangEn:
+        selectedAppLayout_ = Config::AppLayout::English;
+        EnsureAnimationRunning();
+        RequestRedraw();
+        return;
+    case HitZone::AppLangRu:
+        selectedAppLayout_ = Config::AppLayout::Russian;
+        EnsureAnimationRunning();
+        RequestRedraw();
+        return;
+    case HitZone::AppAddBtn:
+        AddAppLayoutFromInput();
+        return;
+    case HitZone::AppRowBadge:
+        if (hit.index >= 0) ToggleAppRuleLayout(static_cast<size_t>(hit.index));
+        return;
+    case HitZone::AppRowDelete:
+        if (hit.index >= 0) RemoveAppRule(static_cast<size_t>(hit.index));
+        return;
+    case HitZone::ExclPickBtn:
+        ShowAppPickerMenu(RcExclPick(), false);
+        return;
+    case HitZone::ExclAddBtn:
+        AddExclusionFromInput();
+        return;
+    case HitZone::ExclRowDelete:
+        if (hit.index >= 0) RemoveExclusion(static_cast<size_t>(hit.index));
+        return;
+    default:
+        break;
+    }
+
+    EnsureAnimationRunning();
+    RequestRedraw();
+}
+
+void SettingsWindow::HandleMouseWheel(short delta, float dipX, float dipY) {
+    if (!PointInRectF(RcListBox(), dipX, dipY)) return;
+    float step = -(delta / 120.0f) * 52.0f;
+    if (activeTab_ == SettingsTab::AppLayouts) {
+        float maxScroll = (std::max)(0.0f, static_cast<float>(cfg_.appLayouts.size()) * APP_ROW_H + 8.0f - LIST_H);
+        appScrollTarget_ = (std::clamp)(appScrollTarget_ + step, 0.0f, maxScroll);
+        EnsureAnimationRunning();
+        RequestRedraw();
+    } else if (activeTab_ == SettingsTab::Exclusions) {
+        float maxScroll = (std::max)(0.0f, static_cast<float>(cfg_.exclusions.size()) * EXCL_ROW_H + 8.0f - LIST_H);
+        exclScrollTarget_ = (std::clamp)(exclScrollTarget_ + step, 0.0f, maxScroll);
+        EnsureAnimationRunning();
+        RequestRedraw();
+    }
+}
+
+void SettingsWindow::DrawNavigationRail(ID2D1RenderTarget* rt, const FluentPalette& pal, ID2D1SolidColorBrush* brush) {
+    // Brand header (small approved App Logo + title)
+    D2D1_RECT_F iconBox = D2D1::RectF(14.0f, 10.0f, 32.0f, 28.0f);
+    brush->SetColor(Rgba(24, 34, 52, 1.0f));
+    rt->FillRoundedRectangle(D2D1::RoundedRect(iconBox, 5.0f, 5.0f), brush);
+    ID2D1StrokeStyle* round = FluentGraphics::Instance().RoundStrokeStyle();
+    float ix = iconBox.left;
+    float iy = iconBox.top;
+    float is = 18.0f / 16.0f;
+    brush->SetColor(Rgba(255, 255, 255, 0.96f));
+    rt->DrawLine(D2D1::Point2F(ix + 4.8f * is, iy + 7.6f * is), D2D1::Point2F(ix + 8.0f * is, iy + 4.2f * is), brush, 1.5f, round);
+    rt->DrawLine(D2D1::Point2F(ix + 8.0f * is, iy + 4.2f * is), D2D1::Point2F(ix + 11.2f * is, iy + 7.6f * is), brush, 1.5f, round);
+    rt->DrawLine(D2D1::Point2F(ix + 8.0f * is, iy + 4.6f * is), D2D1::Point2F(ix + 8.0f * is, iy + 9.6f * is), brush, 1.5f, round);
+    brush->SetColor(Rgba(56, 189, 248, 1.0f));
+    rt->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(ix + 4.2f * is, iy + 11.4f * is, ix + 7.6f * is, iy + 12.9f * is), 0.75f, 0.75f), brush);
+    brush->SetColor(Rgba(251, 113, 133, 1.0f));
+    rt->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(ix + 8.4f * is, iy + 11.4f * is, ix + 11.8f * is, iy + 12.9f * is), 0.75f, 0.75f), brush);
+
+    if (fmtBrand_) {
+        brush->SetColor(pal.textPrimary);
+        rt->DrawText(L"CapsSwitch", 10, fmtBrand_, D2D1::RectF(40.0f, 9.0f, 150.0f, 29.0f), brush);
+    }
+
+    // Navigation items
+    struct NavDef {
+        FluentIcon icon;
+        const wchar_t* label;
+        int count;
+    };
+    const NavDef navs[3] = {
+        { FluentIcon::Settings, L"Основные", -1 },
+        { FluentIcon::Apps, L"Приложения", static_cast<int>(cfg_.appLayouts.size()) },
+        { FluentIcon::Block, L"Исключения", static_cast<int>(cfg_.exclusions.size()) }
+    };
+
+    for (int i = 0; i < 3; ++i) {
+        D2D1_RECT_F rc = RcNavItem(i);
+        bool selected = (static_cast<int>(activeTab_) == i);
+        float hov = navHover_[i];
+
+        if (selected) {
+            brush->SetColor(pal.navItemSelected);
+            rt->FillRoundedRectangle(D2D1::RoundedRect(rc, 5.0f, 5.0f), brush);
+        } else if (hov > 0.01f) {
+            brush->SetColor(FadeColor(pal.navItemHover, hov));
+            rt->FillRoundedRectangle(D2D1::RoundedRect(rc, 5.0f, 5.0f), brush);
+        }
+
+        D2D1_COLOR_F iconCol = selected ? pal.textPrimary : pal.textSecondary;
+        DrawFluentIcon(rt, navs[i].icon,
+            D2D1::RectF(rc.left + 12.0f, rc.top + 10.5f, rc.left + 27.0f, rc.top + 25.5f),
+            iconCol, 1.45f, brush);
+
+        if (fmtNav_) {
+            brush->SetColor(selected ? pal.textPrimary : (hov > 0.1f ? pal.textPrimary : pal.textSecondary));
+            float textRight = (navs[i].count >= 0) ? (rc.right - 28.0f) : (rc.right - 10.0f);
+            rt->DrawText(navs[i].label, static_cast<UINT32>(wcslen(navs[i].label)), fmtNav_,
+                D2D1::RectF(rc.left + 35.0f, rc.top, textRight, rc.bottom), brush);
+        }
+
+        if (navs[i].count >= 0 && fmtSmall_) {
+            std::wstring cntStr = std::to_wstring(navs[i].count);
+            brush->SetColor(pal.textTertiary);
+            rt->DrawText(cntStr.c_str(), static_cast<UINT32>(cntStr.size()), fmtSmall_,
+                D2D1::RectF(rc.right - 26.0f, rc.top, rc.right - 8.0f, rc.bottom), brush);
+        }
+    }
+
+    // Gliding WinUI 3 left vertical accent pill
+    brush->SetColor(pal.accent);
+    rt->FillRoundedRectangle(
+        D2D1::RoundedRect(D2D1::RectF(NAV_X + 1.0f, navIndicatorY_, NAV_X + 4.0f, navIndicatorY_ + 16.0f), 1.5f, 1.5f),
+        brush
+    );
+
+    // Subtle saved indicator above bottom control
+    if (toastAlpha_ > 0.01f && fmtSmall_) {
+        brush->SetColor(WithAlpha(pal.textSecondary, toastAlpha_));
+        rt->DrawText(L"Сохранено", 9, fmtSmall_, D2D1::RectF(NAV_X + 10.0f, 396.0f, NAV_X + NAV_W - 10.0f, 414.0f), brush);
+    }
+
+    // Simple quiet pause/resume row at bottom of rail
+    D2D1_RECT_F pauseRc = RcRailPauseBtn();
+    if (railPauseHover_ > 0.01f) {
+        brush->SetColor(FadeColor(pal.navItemHover, railPauseHover_));
+        rt->FillRoundedRectangle(D2D1::RoundedRect(pauseRc, 5.0f, 5.0f), brush);
+    }
+    D2D1_COLOR_F dotCol = LerpColor(pal.statusActive, pal.statusPaused, statusPausedAnim_);
+    brush->SetColor(dotCol);
+    rt->FillEllipse(D2D1::Ellipse(D2D1::Point2F(pauseRc.left + 16.0f, (pauseRc.top + pauseRc.bottom) * 0.5f), 3.5f, 3.5f), brush);
+
+    if (fmtNav_) {
+        const wchar_t* stLabel = livePaused_ ? L"Возобновить" : L"Приостановить";
+        brush->SetColor(pal.textSecondary);
+        rt->DrawText(stLabel, static_cast<UINT32>(wcslen(stLabel)), fmtNav_,
+            D2D1::RectF(pauseRc.left + 28.0f, pauseRc.top, pauseRc.right - 8.0f, pauseRc.bottom), brush);
+    }
+}
+
+void SettingsWindow::DrawWorkspaceShell(ID2D1RenderTarget* rt, const FluentPalette& pal, ID2D1SolidColorBrush* brush) {
+    D2D1_RECT_F paneRc = D2D1::RectF(RAIL_W, TOP_BAR_H, WND_LOGICAL_W + 12.0f, WND_LOGICAL_H + 12.0f);
+    brush->SetColor(pal.workspaceBg);
+    rt->FillRoundedRectangle(D2D1::RoundedRect(paneRc, 8.0f, 8.0f), brush);
+    brush->SetColor(pal.borderSubtle);
+    rt->DrawRoundedRectangle(D2D1::RoundedRect(paneRc, 8.0f, 8.0f), brush, 1.0f);
+}
+
+void SettingsWindow::DrawCaptionButtons(ID2D1RenderTarget* rt, const FluentPalette& pal, ID2D1SolidColorBrush* brush) {
+    D2D1_RECT_F minRc = RcBtnMinimize();
+    if (captionHover_[0] > 0.01f) {
+        brush->SetColor(WithAlpha(pal.textPrimary, (darkMode_ ? 0.08f : 0.05f) * captionHover_[0]));
+        rt->FillRectangle(minRc, brush);
+    }
+    DrawFluentIcon(rt, FluentIcon::Minimize,
+        D2D1::RectF(minRc.left + 17.0f, minRc.top + 11.0f, minRc.left + 29.0f, minRc.top + 23.0f),
+        pal.textPrimary, 1.3f, brush);
+
+    D2D1_RECT_F clsRc = RcBtnClose();
+    if (captionHover_[1] > 0.01f) {
+        brush->SetColor(WithAlpha(pal.dangerHoverBg, captionHover_[1]));
+        rt->FillRectangle(clsRc, brush);
+    }
+    D2D1_COLOR_F clsFg = LerpColor(pal.textPrimary, Rgba(255, 255, 255, 1.0f), captionHover_[1]);
+    DrawFluentIcon(rt, FluentIcon::Close,
+        D2D1::RectF(clsRc.left + 17.0f, clsRc.top + 11.0f, clsRc.left + 29.0f, clsRc.top + 23.0f),
+        clsFg, 1.3f, brush);
+}
+
+void SettingsWindow::DrawPageHeader(ID2D1RenderTarget* rt, const FluentPalette& pal, ID2D1SolidColorBrush* brush, float offsetY, float alpha) {
+    const wchar_t* title = L"Основные";
+    if (activeTab_ == SettingsTab::AppLayouts) title = L"Приложения";
+    else if (activeTab_ == SettingsTab::Exclusions) title = L"Исключения";
+
+    if (fmtPageTitle_) {
+        brush->SetColor(WithAlpha(pal.textPrimary, alpha));
+        rt->DrawText(title, static_cast<UINT32>(wcslen(title)), fmtPageTitle_,
+            D2D1::RectF(WORK_PAD_X, HEADER_Y + offsetY * 0.4f, WORK_RIGHT, HEADER_Y + 30.0f + offsetY * 0.4f), brush);
+    }
+}
+
+void SettingsWindow::DrawGeneralPage(ID2D1RenderTarget* rt, const FluentPalette& pal, ID2D1SolidColorBrush* brush, float offsetY, float alpha) {
+    struct RowDef {
+        FluentIcon icon;
+        const wchar_t* title;
+        const wchar_t* subtitle;
+        bool value;
+    };
+    const RowDef rows[5] = {
+        { FluentIcon::AutoSwitch, L"Автопереключение раскладки",
+          L"Исправление слова при ошибочной раскладке", cfg_.autoSwitch },
+        { FluentIcon::CapsLock, L"Переключение по Caps Lock",
+          L"Циклическая смена RU ⇄ EN без фиксации регистра", cfg_.capsLockSwitch },
+        { FluentIcon::DoubleCaps, L"Перевод по 2× Caps Lock",
+          L"Конвертация выделенного или последнего слова", cfg_.doubleCapsConvert },
+        { FluentIcon::Shield, L"Защита полей паролей",
+          L"Авто-EN и отключение буфера в скрытых полях", cfg_.passwordGuard },
+        { FluentIcon::Rocket, L"Автозапуск с Windows",
+          L"Запуск при входе в систему", cfg_.autostart }
+    };
+
+    for (int i = 0; i < 5; ++i) {
+        D2D1_RECT_F rc = ShiftRectY(RcToggleRow(i), offsetY);
+        float hov = rowHover_[i];
+        float prs = togglePress_[i];
+        float tAnim = toggleAnim_[i];
+
+        D2D1_COLOR_F bg = LerpColor(pal.cardBg, pal.cardHoverBg, hov);
+        if (prs > 0.1f) bg = LerpColor(bg, pal.cardPressedBg, prs);
+        brush->SetColor(FadeColor(bg, alpha));
+        rt->FillRoundedRectangle(D2D1::RoundedRect(rc, 6.0f, 6.0f), brush);
+
+        brush->SetColor(FadeColor(pal.borderSubtle, alpha));
+        rt->DrawRoundedRectangle(D2D1::RoundedRect(rc, 6.0f, 6.0f), brush, 1.0f);
+
+        // Calm monochrome leading icon
+        DrawFluentIcon(rt, rows[i].icon,
+            D2D1::RectF(rc.left + 16.0f, rc.top + 23.0f, rc.left + 32.0f, rc.top + 39.0f),
+            FadeColor(pal.textPrimary, alpha), 1.45f, brush);
+
+        if (fmtRowTitle_) {
+            brush->SetColor(WithAlpha(pal.textPrimary, alpha));
+            rt->DrawText(rows[i].title, static_cast<UINT32>(wcslen(rows[i].title)), fmtRowTitle_,
+                D2D1::RectF(rc.left + 46.0f, rc.top + 11.0f, rc.right - 96.0f, rc.top + 31.0f), brush);
+        }
+        if (fmtRowSub_) {
+            brush->SetColor(FadeColor(pal.textSecondary, alpha));
+            rt->DrawText(rows[i].subtitle, static_cast<UINT32>(wcslen(rows[i].subtitle)), fmtRowSub_,
+                D2D1::RectF(rc.left + 46.0f, rc.top + 32.0f, rc.right - 96.0f, rc.top + 50.0f), brush);
+        }
+
+        // WinUI 3 ToggleSwitch
+        float pillW = 40.0f;
+        float pillH = 20.0f;
+        float pillX = rc.right - 16.0f - pillW;
+        float pillY = (rc.top + rc.bottom - pillH) * 0.5f;
+        D2D1_RECT_F pillRc = D2D1::RectF(pillX, pillY, pillX + pillW, pillY + pillH);
+
+        D2D1_COLOR_F trackCol = LerpColor(pal.toggleOffTrack, LerpColor(pal.accent, pal.accentHover, toggleHover_[i]), tAnim);
+        brush->SetColor(FadeColor(trackCol, alpha));
+        rt->FillRoundedRectangle(D2D1::RoundedRect(pillRc, 10.0f, 10.0f), brush);
+
+        if (tAnim < 0.99f) {
+            brush->SetColor(FadeColor(pal.toggleOffBorder, (1.0f - tAnim) * alpha));
+            rt->DrawRoundedRectangle(D2D1::RoundedRect(pillRc, 10.0f, 10.0f), brush, 1.0f);
+        }
+
+        float knobD = 12.0f + 1.5f * toggleHover_[i] - 1.0f * prs;
+        float knobW = knobD + 2.5f * prs;
+        float knobX = Lerp(pillX + 4.0f, pillX + pillW - 4.0f - knobW, tAnim);
+        float knobY = pillY + (pillH - knobD) * 0.5f;
+        brush->SetColor(FadeColor(LerpColor(pal.toggleOffKnob, pal.accentText, tAnim), alpha));
+        rt->FillRoundedRectangle(
+            D2D1::RoundedRect(D2D1::RectF(knobX, knobY, knobX + knobW, knobY + knobD), knobD * 0.5f, knobD * 0.5f),
+            brush
+        );
+
+        if (fmtSmall_) {
+            const wchar_t* stateLabel = rows[i].value ? L"Вкл" : L"Выкл";
+            brush->SetColor(FadeColor(pal.textSecondary, alpha));
+            rt->DrawText(stateLabel, static_cast<UINT32>(wcslen(stateLabel)), fmtSmall_,
+                D2D1::RectF(pillX - 38.0f, pillY, pillX - 8.0f, pillY + pillH), brush);
+        }
+    }
+}
+
+void SettingsWindow::DrawTextInput(
+    ID2D1RenderTarget* rt,
+    const FluentPalette& pal,
+    ID2D1SolidColorBrush* brush,
+    FluentTextInput& input,
+    float offsetY,
+    float alpha
+) {
+    D2D1_RECT_F rc = ShiftRectY(input.rect, offsetY);
+    D2D1_COLOR_F bg = LerpColor(pal.inputBg, pal.inputFocusBg, input.focusAnim);
+    if (!input.focused && input.hoverAnim > 0.01f) {
+        bg = LerpColor(bg, pal.cardHoverBg, input.hoverAnim * 0.5f);
+    }
+    brush->SetColor(FadeColor(bg, alpha));
+    rt->FillRoundedRectangle(D2D1::RoundedRect(rc, 5.0f, 5.0f), brush);
+
+    D2D1_COLOR_F inpBorder = LerpColor(pal.borderSubtle, pal.borderStrong, (std::max)(input.focusAnim, input.hoverAnim));
+    brush->SetColor(FadeColor(inpBorder, alpha));
+    rt->DrawRoundedRectangle(D2D1::RoundedRect(rc, 5.0f, 5.0f), brush, 1.0f);
+
+    brush->SetColor(FadeColor(pal.borderStrong, alpha));
+    rt->DrawLine(D2D1::Point2F(rc.left + 4.0f, rc.bottom - 0.5f), D2D1::Point2F(rc.right - 4.0f, rc.bottom - 0.5f), brush, 1.0f);
+
+    if (input.focusAnim > 0.01f) {
+        float cx = (rc.left + rc.right) * 0.5f;
+        float halfW = ((rc.right - rc.left) * 0.5f - 2.0f) * EaseOutCubic(input.focusAnim);
+        brush->SetColor(WithAlpha(pal.accent, alpha));
+        rt->FillRoundedRectangle(
+            D2D1::RoundedRect(D2D1::RectF(cx - halfW, rc.bottom - 2.0f, cx + halfW, rc.bottom), 1.0f, 1.0f),
+            brush
+        );
+    }
+
+    D2D1_RECT_F textClip = D2D1::RectF(rc.left + 9.0f, rc.top + 2.0f, rc.right - 9.0f, rc.bottom - 2.0f);
+    rt->PushAxisAlignedClip(textClip, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+
+    if (input.text.empty()) {
+        if (fmtInput_) {
+            brush->SetColor(FadeColor(pal.textTertiary, alpha));
+            rt->DrawText(input.placeholder.c_str(), static_cast<UINT32>(input.placeholder.size()),
+                fmtInput_, textClip, brush);
+        }
+    } else if (fmtInput_) {
+        IDWriteFactory* dw = FluentGraphics::Instance().DWriteFactory();
+        IDWriteTextLayout* layout = nullptr;
+        if (dw && SUCCEEDED(dw->CreateTextLayout(input.text.c_str(), static_cast<UINT32>(input.text.size()),
+            fmtInput_, 4096.0f, rc.bottom - rc.top, &layout)) && layout) {
+            float drawX = rc.left + 10.0f - input.scrollX;
+
+            if (input.focused && input.HasSelection()) {
+                size_t s = 0, e = 0;
+                input.GetSelectionRange(s, e);
+                UINT32 hitCount = 0;
+                layout->HitTestTextRange(static_cast<UINT32>(s), static_cast<UINT32>(e - s), drawX, rc.top, nullptr, 0, &hitCount);
+                if (hitCount > 0) {
+                    std::vector<DWRITE_HIT_TEST_METRICS> htm(hitCount);
+                    if (SUCCEEDED(layout->HitTestTextRange(static_cast<UINT32>(s), static_cast<UINT32>(e - s),
+                        drawX, rc.top, htm.data(), hitCount, &hitCount))) {
+                        brush->SetColor(WithAlpha(pal.accent, 0.30f * alpha));
+                        for (UINT32 k = 0; k < hitCount; ++k) {
+                            rt->FillRoundedRectangle(
+                                D2D1::RoundedRect(D2D1::RectF(htm[k].left, rc.top + 6.0f, htm[k].left + htm[k].width, rc.bottom - 6.0f), 2.0f, 2.0f),
+                                brush
+                            );
+                        }
+                    }
+                }
+            }
+
+            brush->SetColor(WithAlpha(pal.textPrimary, alpha));
+            rt->DrawTextLayout(D2D1::Point2F(drawX, rc.top), layout, brush);
+
+            if (input.focused && input.caretPhase < 1.0f) {
+                float cx = 0.0f, cy = 0.0f;
+                DWRITE_HIT_TEST_METRICS cm = {};
+                layout->HitTestTextPosition(static_cast<UINT32>(input.caretPos), FALSE, &cx, &cy, &cm);
+                float caretDrawX = drawX + cx;
+                brush->SetColor(WithAlpha(pal.textPrimary, alpha));
+                rt->FillRectangle(D2D1::RectF(caretDrawX, rc.top + 7.0f, caretDrawX + 1.4f, rc.bottom - 7.0f), brush);
+            }
+            layout->Release();
+        }
+    }
+
+    rt->PopAxisAlignedClip();
+}
+
+void SettingsWindow::DrawFluentButton(
+    ID2D1RenderTarget* rt,
+    const FluentPalette& pal,
+    ID2D1SolidColorBrush* brush,
+    const D2D1_RECT_F& rc,
+    const std::wstring& label,
+    FluentIcon icon,
+    bool primary,
+    float hoverAnim,
+    bool pressed,
+    float alpha
+) {
+    D2D1_COLOR_F bg{};
+    D2D1_COLOR_F fg{};
+    D2D1_COLOR_F brd{};
+
+    if (primary) {
+        bg = LerpColor(pal.accent, pal.accentHover, hoverAnim);
+        if (pressed) bg = pal.accentPressed;
+        fg = pal.accentText;
+        brd = Rgba(255, 255, 255, 0.16f);
+    } else {
+        bg = LerpColor(pal.cardBg, pal.cardHoverBg, hoverAnim);
+        if (pressed) bg = pal.cardPressedBg;
+        fg = pal.textPrimary;
+        brd = pal.borderStrong;
+    }
+
+    brush->SetColor(FadeColor(bg, alpha));
+    rt->FillRoundedRectangle(D2D1::RoundedRect(rc, 5.0f, 5.0f), brush);
+    brush->SetColor(FadeColor(brd, alpha));
+    rt->DrawRoundedRectangle(D2D1::RoundedRect(rc, 5.0f, 5.0f), brush, 1.0f);
+
+    if (icon == FluentIcon::ChevronDown) {
+        float cy = (rc.top + rc.bottom) * 0.5f;
+        DrawFluentIcon(rt, icon, D2D1::RectF(rc.right - 19.0f, cy - 5.5f, rc.right - 8.0f, cy + 5.5f),
+            FadeColor(pal.textSecondary, alpha), 1.35f, brush);
+        if (fmtBtn_) {
+            brush->SetColor(FadeColor(fg, alpha));
+            rt->DrawText(label.c_str(), static_cast<UINT32>(label.size()), fmtBtn_,
+                D2D1::RectF(rc.left + 8.0f, rc.top, rc.right - 19.0f, rc.bottom), brush);
+        }
+    } else if (fmtBtn_) {
+        brush->SetColor(FadeColor(fg, alpha));
+        rt->DrawText(label.c_str(), static_cast<UINT32>(label.size()), fmtBtn_, rc, brush);
+    }
+}
+
+void SettingsWindow::DrawScrollbar(
+    ID2D1RenderTarget* rt,
+    const FluentPalette& pal,
+    ID2D1SolidColorBrush* brush,
+    const D2D1_RECT_F& listRc,
+    float scrollY,
+    float contentH,
+    float alpha
+) {
+    float viewH = listRc.bottom - listRc.top;
+    if (contentH <= viewH + 1.0f) return;
+
+    float ratio = viewH / contentH;
+    float barH = (std::max)(24.0f, viewH * ratio);
+    float maxScroll = contentH - viewH;
+    float barY = listRc.top + 4.0f + (maxScroll > 0.0f ? (scrollY / maxScroll) * (viewH - barH - 8.0f) : 0.0f);
+    brush->SetColor(FadeColor(pal.textTertiary, alpha));
+    rt->FillRoundedRectangle(
+        D2D1::RoundedRect(D2D1::RectF(listRc.right - 6.0f, barY, listRc.right - 2.5f, barY + barH), 1.75f, 1.75f),
+        brush
+    );
+}
+
+void SettingsWindow::DrawAppLayoutsPage(ID2D1RenderTarget* rt, const FluentPalette& pal, ID2D1SolidColorBrush* brush, float offsetY, float alpha) {
+    DrawTextInput(rt, pal, brush, appInput_, offsetY, alpha);
+
+    DrawFluentButton(rt, pal, brush, ShiftRectY(RcAppPick(), offsetY), L"Окна", FluentIcon::ChevronDown,
+        false, hovered_.zone == HitZone::AppPickBtn ? btnPickHover_ : 0.0f,
+        pressed_.zone == HitZone::AppPickBtn, alpha);
+
+    // Calm tinted EN / RU segmented toggle
+    D2D1_RECT_F rcEn = ShiftRectY(RcAppLangEn(), offsetY);
+    D2D1_RECT_F rcRu = ShiftRectY(RcAppLangRu(), offsetY);
+    D2D1_RECT_F segRc = D2D1::RectF(rcEn.left, rcEn.top, rcRu.right, rcRu.bottom);
+    brush->SetColor(FadeColor(pal.inputBg, alpha));
+    rt->FillRoundedRectangle(D2D1::RoundedRect(segRc, 5.0f, 5.0f), brush);
+    brush->SetColor(FadeColor(pal.borderSubtle, alpha));
+    rt->DrawRoundedRectangle(D2D1::RoundedRect(segRc, 5.0f, 5.0f), brush, 1.0f);
+
+    float segW = rcEn.right - rcEn.left;
+    float pillX = Lerp(rcEn.left + 2.0f, rcRu.left + 2.0f, langSelectorAnim_);
+    D2D1_COLOR_F pillBg = LerpColor(pal.langEnSoft, pal.langRuSoft, langSelectorAnim_);
+    D2D1_COLOR_F pillBrd = LerpColor(pal.langEnFill, pal.langRuFill, langSelectorAnim_);
+    D2D1_RECT_F pillRc = D2D1::RectF(pillX, segRc.top + 2.0f, pillX + segW - 4.0f, segRc.bottom - 2.0f);
+    brush->SetColor(FadeColor(pillBg, alpha));
+    rt->FillRoundedRectangle(D2D1::RoundedRect(pillRc, 3.5f, 3.5f), brush);
+    brush->SetColor(WithAlpha(pillBrd, 0.35f * alpha));
+    rt->DrawRoundedRectangle(D2D1::RoundedRect(pillRc, 3.5f, 3.5f), brush, 1.0f);
+
+    if (fmtBadge_) {
+        brush->SetColor(WithAlpha(LerpColor(pal.langEnFill, pal.textSecondary, langSelectorAnim_), alpha));
+        rt->DrawText(L"EN", 2, fmtBadge_, rcEn, brush);
+        brush->SetColor(WithAlpha(LerpColor(pal.textSecondary, pal.langRuFill, langSelectorAnim_), alpha));
+        rt->DrawText(L"RU", 2, fmtBadge_, rcRu, brush);
+    }
+
+    DrawFluentButton(rt, pal, brush, ShiftRectY(RcAppAdd(), offsetY), L"Добавить", FluentIcon::None,
+        true, hovered_.zone == HitZone::AppAddBtn ? btnAddHover_ : 0.0f,
+        pressed_.zone == HitZone::AppAddBtn, alpha);
+
+    D2D1_RECT_F listRc = ShiftRectY(RcListBox(), offsetY);
+    brush->SetColor(FadeColor(pal.cardBg, alpha));
+    rt->FillRoundedRectangle(D2D1::RoundedRect(listRc, 6.0f, 6.0f), brush);
+    brush->SetColor(FadeColor(pal.borderSubtle, alpha));
+    rt->DrawRoundedRectangle(D2D1::RoundedRect(listRc, 6.0f, 6.0f), brush, 1.0f);
+
+    rt->PushAxisAlignedClip(D2D1::RectF(listRc.left + 1.0f, listRc.top + 1.0f, listRc.right - 1.0f, listRc.bottom - 1.0f),
+        D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+
+    if (cfg_.appLayouts.empty()) {
+        if (fmtRowTitle_) {
+            fmtRowTitle_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+            brush->SetColor(FadeColor(pal.textSecondary, alpha));
+            const wchar_t* emptyT = L"Нет правил";
+            rt->DrawText(emptyT, static_cast<UINT32>(wcslen(emptyT)), fmtRowTitle_,
+                D2D1::RectF(listRc.left + 20.0f, listRc.top + 132.0f, listRc.right - 20.0f, listRc.top + 154.0f), brush);
+            fmtRowTitle_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+        }
+        if (fmtRowSub_) {
+            fmtRowSub_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+            brush->SetColor(FadeColor(pal.textTertiary, alpha));
+            const wchar_t* emptyS = L"Введите имя .exe или выберите окно";
+            rt->DrawText(emptyS, static_cast<UINT32>(wcslen(emptyS)), fmtRowSub_,
+                D2D1::RectF(listRc.left + 20.0f, listRc.top + 154.0f, listRc.right - 20.0f, listRc.top + 174.0f), brush);
+            fmtRowSub_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+        }
+    } else {
+        for (size_t i = 0; i < cfg_.appLayouts.size(); ++i) {
+            float rowY = listRc.top + 4.0f + static_cast<float>(i) * APP_ROW_H - appScrollY_;
+            if (rowY + APP_ROW_H < listRc.top || rowY > listRc.bottom) continue;
+
+            const auto& rule = cfg_.appLayouts[i];
+            bool rowHov = (hovered_.index == static_cast<int>(i) &&
+                (hovered_.zone == HitZone::AppRow || hovered_.zone == HitZone::AppRowBadge || hovered_.zone == HitZone::AppRowDelete));
+
+            D2D1_RECT_F rowRc = D2D1::RectF(listRc.left + 4.0f, rowY + 2.0f, listRc.right - 8.0f, rowY + APP_ROW_H - 2.0f);
+            if (rowHov) {
+                brush->SetColor(FadeColor(pal.cardHoverBg, alpha));
+                rt->FillRoundedRectangle(D2D1::RoundedRect(rowRc, 4.5f, 4.5f), brush);
+            }
+            if (i + 1 < cfg_.appLayouts.size()) {
+                brush->SetColor(FadeColor(pal.divider, alpha));
+                rt->DrawLine(D2D1::Point2F(listRc.left + 14.0f, rowY + APP_ROW_H), D2D1::Point2F(listRc.right - 14.0f, rowY + APP_ROW_H), brush, 1.0f);
+            }
+
+            if (fmtRowTitle_) {
+                brush->SetColor(WithAlpha(pal.textPrimary, alpha));
+                rt->DrawText(rule.processName.c_str(), static_cast<UINT32>(rule.processName.size()), fmtRowTitle_,
+                    D2D1::RectF(rowRc.left + 12.0f, rowY, rowRc.right - 96.0f, rowY + APP_ROW_H), brush);
+            }
+
+            bool isRu = (rule.layout == Config::AppLayout::Russian);
+            D2D1_RECT_F badgeRc = D2D1::RectF(listRc.right - 92.0f, rowY + 9.0f, listRc.right - 48.0f, rowY + APP_ROW_H - 9.0f);
+            brush->SetColor(FadeColor(isRu ? pal.langRuSoft : pal.langEnSoft, alpha));
+            rt->FillRoundedRectangle(D2D1::RoundedRect(badgeRc, 4.5f, 4.5f), brush);
+            if (fmtBadge_) {
+                brush->SetColor(WithAlpha(isRu ? pal.langRuFill : pal.langEnFill, alpha));
+                rt->DrawText(isRu ? L"RU" : L"EN", 2, fmtBadge_, badgeRc, brush);
+            }
+
+            D2D1_RECT_F delRc = D2D1::RectF(listRc.right - 40.0f, rowY + 6.0f, listRc.right - 12.0f, rowY + APP_ROW_H - 6.0f);
+            bool delHov = (hovered_.zone == HitZone::AppRowDelete && hovered_.index == static_cast<int>(i));
+            if (delHov) {
+                brush->SetColor(FadeColor(pal.navItemHover, alpha));
+                rt->FillRoundedRectangle(D2D1::RoundedRect(delRc, 4.5f, 4.5f), brush);
+            }
+            D2D1_COLOR_F delCol = delHov ? pal.textPrimary : (rowHov ? pal.textSecondary : pal.textTertiary);
+            DrawFluentIcon(rt, FluentIcon::Trash,
+                D2D1::RectF(delRc.left + 7.5f, delRc.top + 8.5f, delRc.right - 7.5f, delRc.bottom - 8.5f),
+                FadeColor(delCol, alpha), 1.4f, brush);
+        }
+
+        DrawScrollbar(rt, pal, brush, listRc, appScrollY_, static_cast<float>(cfg_.appLayouts.size()) * APP_ROW_H + 8.0f, alpha);
+    }
+
+    rt->PopAxisAlignedClip();
+}
+
+void SettingsWindow::DrawExclusionsPage(ID2D1RenderTarget* rt, const FluentPalette& pal, ID2D1SolidColorBrush* brush, float offsetY, float alpha) {
+    DrawTextInput(rt, pal, brush, exclInput_, offsetY, alpha);
+
+    DrawFluentButton(rt, pal, brush, ShiftRectY(RcExclPick(), offsetY), L"Окна", FluentIcon::ChevronDown,
+        false, hovered_.zone == HitZone::ExclPickBtn ? btnPickHover_ : 0.0f,
+        pressed_.zone == HitZone::ExclPickBtn, alpha);
+
+    DrawFluentButton(rt, pal, brush, ShiftRectY(RcExclAdd(), offsetY), L"Добавить", FluentIcon::None,
+        true, hovered_.zone == HitZone::ExclAddBtn ? btnAddHover_ : 0.0f,
+        pressed_.zone == HitZone::ExclAddBtn, alpha);
+
+    D2D1_RECT_F listRc = ShiftRectY(RcListBox(), offsetY);
+    brush->SetColor(FadeColor(pal.cardBg, alpha));
+    rt->FillRoundedRectangle(D2D1::RoundedRect(listRc, 6.0f, 6.0f), brush);
+    brush->SetColor(FadeColor(pal.borderSubtle, alpha));
+    rt->DrawRoundedRectangle(D2D1::RoundedRect(listRc, 6.0f, 6.0f), brush, 1.0f);
+
+    rt->PushAxisAlignedClip(D2D1::RectF(listRc.left + 1.0f, listRc.top + 1.0f, listRc.right - 1.0f, listRc.bottom - 1.0f),
+        D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+
+    if (cfg_.exclusions.empty()) {
+        if (fmtRowTitle_) {
+            fmtRowTitle_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+            brush->SetColor(FadeColor(pal.textSecondary, alpha));
+            const wchar_t* emptyT = L"Список исключений пуст";
+            rt->DrawText(emptyT, static_cast<UINT32>(wcslen(emptyT)), fmtRowTitle_,
+                D2D1::RectF(listRc.left + 20.0f, listRc.top + 140.0f, listRc.right - 20.0f, listRc.top + 162.0f), brush);
+            fmtRowTitle_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+        }
+    } else {
+        for (size_t i = 0; i < cfg_.exclusions.size(); ++i) {
+            float rowY = listRc.top + 4.0f + static_cast<float>(i) * EXCL_ROW_H - exclScrollY_;
+            if (rowY + EXCL_ROW_H < listRc.top || rowY > listRc.bottom) continue;
+
+            const auto& proc = cfg_.exclusions[i];
+            bool rowHov = (hovered_.index == static_cast<int>(i) &&
+                (hovered_.zone == HitZone::ExclRow || hovered_.zone == HitZone::ExclRowDelete));
+
+            D2D1_RECT_F rowRc = D2D1::RectF(listRc.left + 4.0f, rowY + 2.0f, listRc.right - 8.0f, rowY + EXCL_ROW_H - 2.0f);
+            if (rowHov) {
+                brush->SetColor(FadeColor(pal.cardHoverBg, alpha));
+                rt->FillRoundedRectangle(D2D1::RoundedRect(rowRc, 4.5f, 4.5f), brush);
+            }
+            if (i + 1 < cfg_.exclusions.size()) {
+                brush->SetColor(FadeColor(pal.divider, alpha));
+                rt->DrawLine(D2D1::Point2F(listRc.left + 14.0f, rowY + EXCL_ROW_H), D2D1::Point2F(listRc.right - 14.0f, rowY + EXCL_ROW_H), brush, 1.0f);
+            }
+
+            if (fmtRowTitle_) {
+                brush->SetColor(WithAlpha(pal.textPrimary, alpha));
+                rt->DrawText(proc.c_str(), static_cast<UINT32>(proc.size()), fmtRowTitle_,
+                    D2D1::RectF(rowRc.left + 12.0f, rowY, rowRc.right - 44.0f, rowY + EXCL_ROW_H), brush);
+            }
+
+            D2D1_RECT_F delRc = D2D1::RectF(listRc.right - 40.0f, rowY + 6.0f, listRc.right - 12.0f, rowY + EXCL_ROW_H - 6.0f);
+            bool delHov = (hovered_.zone == HitZone::ExclRowDelete && hovered_.index == static_cast<int>(i));
+            if (delHov) {
+                brush->SetColor(FadeColor(pal.navItemHover, alpha));
+                rt->FillRoundedRectangle(D2D1::RoundedRect(delRc, 4.5f, 4.5f), brush);
+            }
+            D2D1_COLOR_F delCol = delHov ? pal.textPrimary : (rowHov ? pal.textSecondary : pal.textTertiary);
+            DrawFluentIcon(rt, FluentIcon::Trash,
+                D2D1::RectF(delRc.left + 7.5f, delRc.top + 8.5f, delRc.right - 7.5f, delRc.bottom - 8.5f),
+                FadeColor(delCol, alpha), 1.4f, brush);
+        }
+
+        DrawScrollbar(rt, pal, brush, listRc, exclScrollY_, static_cast<float>(cfg_.exclusions.size()) * EXCL_ROW_H + 8.0f, alpha);
+    }
+
+    rt->PopAxisAlignedClip();
+}
+
+void SettingsWindow::RenderNow(HDC fallbackDstDC) {
+    if (!hWnd_) return;
+    RECT rcClient{};
+    GetClientRect(hWnd_, &rcClient);
+    int pxW = rcClient.right - rcClient.left;
+    int pxH = rcClient.bottom - rcClient.top;
+    if (pxW <= 0 || pxH <= 0) return;
+
+    EnsureFormats();
+    float scale = dpi_ / 96.0f;
+    if (!surface_.EnsureSize(hWnd_, pxW, pxH)) return;
+    ID2D1RenderTarget* rt = surface_.BeginDraw(scale, fallbackDstDC);
+    if (!rt) return;
+
+    ID2D1SolidColorBrush* brush = surface_.Brush();
+    FluentPalette pal = GetFluentPalette(darkMode_);
+
+    if (hasBackdrop_) {
+        rt->Clear(D2D1::ColorF(0, 0, 0, 0));
+    } else {
+        rt->Clear(pal.shellFallbackBg);
+    }
+
+    if (brush) {
+        DrawNavigationRail(rt, pal, brush);
+        DrawWorkspaceShell(rt, pal, brush);
+        DrawCaptionButtons(rt, pal, brush);
+
+        float ease = EaseOutQuint(pageTransition_);
+        float inOffsetY = (1.0f - ease) * 8.0f * static_cast<float>(pageDir_);
+        float inAlpha = ease;
+
+        DrawPageHeader(rt, pal, brush, inOffsetY, inAlpha);
+
+        rt->PushAxisAlignedClip(D2D1::RectF(RAIL_W + 4.0f, BODY_TOP, WND_LOGICAL_W - 2.0f, BODY_BOTTOM),
+            D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+
+        if (pageTransition_ < 0.99f && prevTab_ != activeTab_) {
+            float outOffsetY = -ease * 6.0f * static_cast<float>(pageDir_);
+            float outAlpha = (std::max)(0.0f, 1.0f - ease * 1.6f);
+            if (outAlpha > 0.01f) {
+                if (prevTab_ == SettingsTab::General) DrawGeneralPage(rt, pal, brush, outOffsetY, outAlpha);
+                else if (prevTab_ == SettingsTab::AppLayouts) DrawAppLayoutsPage(rt, pal, brush, outOffsetY, outAlpha);
+                else DrawExclusionsPage(rt, pal, brush, outOffsetY, outAlpha);
+            }
+        }
+
+        if (activeTab_ == SettingsTab::General) DrawGeneralPage(rt, pal, brush, inOffsetY, inAlpha);
+        else if (activeTab_ == SettingsTab::AppLayouts) DrawAppLayoutsPage(rt, pal, brush, inOffsetY, inAlpha);
+        else DrawExclusionsPage(rt, pal, brush, inOffsetY, inAlpha);
+
+        rt->PopAxisAlignedClip();
+    }
+
+    HRESULT hr = surface_.EndDrawAndPresent(fallbackDstDC);
+    if (hr == D2DERR_RECREATE_TARGET || hr == DXGI_ERROR_DEVICE_REMOVED) {
+        RequestRedraw();
+    }
 }
 
 LRESULT CALLBACK SettingsWindow::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
@@ -416,414 +1705,140 @@ LRESULT CALLBACK SettingsWindow::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPA
     return DefWindowProcW(hWnd, msg, wParam, lParam);
 }
 
-void SettingsWindow::DrawToggle(HDC hdc, int x, int y, bool state, const wchar_t* title, const wchar_t* subtitle, RECT& hitRect) {
-    hitRect = { x, y, x + 460, y + 42 };
-
-    // Draw Title & Subtitle
-    SetBkMode(hdc, TRANSPARENT);
-    SetTextColor(hdc, COL_TEXT_PRI);
-    SelectObject(hdc, hFontBold_);
-    RECT rcTitle = { x, y, x + 380, y + 20 };
-    DrawTextW(hdc, title, -1, &rcTitle, DT_LEFT | DT_SINGLELINE);
-
-    SetTextColor(hdc, COL_TEXT_SEC);
-    SelectObject(hdc, hFontSub_);
-    RECT rcSub = { x, y + 20, x + 380, y + 38 };
-    DrawTextW(hdc, subtitle, -1, &rcSub, DT_LEFT | DT_SINGLELINE);
-
-    // Draw Toggle Pill (Windows 11 Switch shape)
-    int pillW = 44;
-    int pillH = 22;
-    int pillX = x + 410;
-    int pillY = y + 8;
-
-    HBRUSH hPillBrush = CreateSolidBrush(state ? COL_ACCENT : COL_TOGGLE_OFF);
-    HPEN hPillPen = CreatePen(PS_SOLID, 1, state ? COL_ACCENT : COL_BORDER);
-    HBRUSH hOldBrush = (HBRUSH)SelectObject(hdc, hPillBrush);
-    HPEN hOldPen = (HPEN)SelectObject(hdc, hPillPen);
-
-    RoundRect(hdc, pillX, pillY, pillX + pillW, pillY + pillH, 22, 22);
-
-    // Draw Toggle Knob (White circle)
-    int knobSize = 16;
-    int knobX = state ? (pillX + pillW - knobSize - 3) : (pillX + 3);
-    int knobY = pillY + 3;
-
-    HBRUSH hKnobBrush = CreateSolidBrush(RGB(255, 255, 255));
-    SelectObject(hdc, hKnobBrush);
-    Ellipse(hdc, knobX, knobY, knobX + knobSize, knobY + knobSize);
-
-    SelectObject(hdc, hOldBrush);
-    SelectObject(hdc, hOldPen);
-    DeleteObject(hPillBrush);
-    DeleteObject(hPillPen);
-    DeleteObject(hKnobBrush);
-}
-
-void SettingsWindow::DrawHeader(HDC hdc) {
-    // Title
-    SetBkMode(hdc, TRANSPARENT);
-    SetTextColor(hdc, COL_TEXT_PRI);
-    SelectObject(hdc, hFontTitle_);
-    RECT rcTitle = { 24, 18, 300, 48 };
-    DrawTextW(hdc, L"CapsSwitch", -1, &rcTitle, DT_LEFT | DT_SINGLELINE);
-
-    // Subtitle
-    SetTextColor(hdc, COL_TEXT_SEC);
-    SelectObject(hdc, hFontSub_);
-    RECT rcSub = { 24, 46, 320, 64 };
-    DrawTextW(hdc, L"Сверхлегкий портативный переключатель раскладки", -1, &rcSub, DT_LEFT | DT_SINGLELINE);
-
-    // Status Badge
-    bool paused = Core::HookManager::Instance().IsPaused();
-    COLORREF statusCol = paused ? COL_AMBER : COL_SUCCESS;
-    const wchar_t* statusText = paused ? L"⏸ На паузе" : L"● Активен";
-
-    int badgeW = 95;
-    int badgeH = 26;
-    int badgeX = 390;
-    int badgeY = 24;
-    rcStatusBadge_ = { badgeX, badgeY, badgeX + badgeW, badgeY + badgeH };
-
-    HBRUSH hBadgeBrush = CreateSolidBrush(RGB(50, 50, 50));
-    HPEN hBadgePen = CreatePen(PS_SOLID, 1, statusCol);
-    HBRUSH hOldB = (HBRUSH)SelectObject(hdc, hBadgeBrush);
-    HPEN hOldP = (HPEN)SelectObject(hdc, hBadgePen);
-
-    RoundRect(hdc, badgeX, badgeY, badgeX + badgeW, badgeY + badgeH, 14, 14);
-
-    SelectObject(hdc, hFontBold_);
-    SetTextColor(hdc, statusCol);
-    RECT rcBadge = { badgeX, badgeY, badgeX + badgeW, badgeY + badgeH };
-    DrawTextW(hdc, statusText, -1, &rcBadge, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-
-    SelectObject(hdc, hOldB);
-    SelectObject(hdc, hOldP);
-    DeleteObject(hBadgeBrush);
-    DeleteObject(hBadgePen);
-}
-
-void SettingsWindow::DrawSettingsCard(HDC hdc) {
-    // Rounded Card Background
-    int cardX = 20;
-    int cardY = 75;
-    int cardW = 475;
-    int cardH = 255;
-
-    HBRUSH hOldB = (HBRUSH)SelectObject(hdc, hBrCard_);
-    HPEN hPen = CreatePen(PS_SOLID, 1, COL_BORDER);
-    HPEN hOldP = (HPEN)SelectObject(hdc, hPen);
-
-    RoundRect(hdc, cardX, cardY, cardX + cardW, cardY + cardH, 12, 12);
-
-    SelectObject(hdc, hOldB);
-    SelectObject(hdc, hOldP);
-    DeleteObject(hPen);
-
-    const auto cfg = Config::ConfigManager::Instance().GetSnapshot();
-
-    // 5 Toggle Switches inside card
-    int startY = 86;
-    int stepY = 47;
-
-    DrawToggle(hdc, 34, startY, cfg.autoSwitch,
-        L"Автопереключение раскладки",
-        L"Автоматически исправлять набранное слово при ошибке языка",
-        rcToggleAuto_);
-
-    DrawToggle(hdc, 34, startY + stepY, cfg.capsLockSwitch,
-        L"Переключение по Caps Lock",
-        L"Циклическое переключение RU <-> EN и подавление фиксатора регистра",
-        rcToggleCaps_);
-
-    DrawToggle(hdc, 34, startY + stepY * 2, cfg.doubleCapsConvert,
-        L"Перевод по 2x Caps Lock",
-        L"Быстрый перевод выделенного текста или последнего слова",
-        rcToggleDoubleCaps_);
-
-    DrawToggle(hdc, 34, startY + stepY * 3, cfg.passwordGuard,
-        L"Защита полей паролей",
-        L"Авто-EN и отключение буферизации в скрытых полях ввода (UIA & Win32)",
-        rcTogglePwd_);
-
-    DrawToggle(hdc, 34, startY + stepY * 4, cfg.autostart,
-        L"Автозапуск с Windows",
-        L"Запуск при входе в систему с привязкой к текущему пути .exe",
-        rcToggleAutoStart_);
-}
-
-void SettingsWindow::DrawProgramsCard(HDC hdc) {
-    int cardX = 20;
-    int cardY = 344;
-    int cardW = 475;
-    int cardH = 260;
-
-    HBRUSH hOldB = (HBRUSH)SelectObject(hdc, hBrCard_);
-    HPEN hPen = CreatePen(PS_SOLID, 1, COL_BORDER);
-    HPEN hOldP = (HPEN)SelectObject(hdc, hPen);
-
-    RoundRect(hdc, cardX, cardY, cardX + cardW, cardY + cardH, 12, 12);
-
-    SelectObject(hdc, hOldB);
-    SelectObject(hdc, hOldP);
-    DeleteObject(hPen);
-
-    const auto cfg = Config::ConfigManager::Instance().GetSnapshot();
-
-    // Segmented tab buttons
-    rcTabAppLayouts_ = { 34, 354, 260, 382 };
-    rcTabExclusions_ = { 268, 354, 481, 382 };
-
-    auto drawTab = [&](const RECT& rc, const std::wstring& label, bool active) {
-        HBRUSH hTabBrush = CreateSolidBrush(active ? COL_TAB_ACTIVE : COL_TAB_INACTIVE);
-        HPEN hTabPen = CreatePen(PS_SOLID, 1, active ? COL_ACCENT : COL_BORDER);
-        HBRUSH hOB = (HBRUSH)SelectObject(hdc, hTabBrush);
-        HPEN hOP = (HPEN)SelectObject(hdc, hTabPen);
-        RoundRect(hdc, rc.left, rc.top, rc.right, rc.bottom, 8, 8);
-        SelectObject(hdc, hOB);
-        SelectObject(hdc, hOP);
-        DeleteObject(hTabBrush);
-        DeleteObject(hTabPen);
-
-        SetBkMode(hdc, TRANSPARENT);
-        SetTextColor(hdc, active ? COL_TEXT_PRI : COL_TEXT_SEC);
-        SelectObject(hdc, active ? hFontBold_ : hFontRegular_);
-        RECT rcText = rc;
-        DrawTextW(hdc, label.c_str(), -1, &rcText, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-    };
-
-    std::wstring tab0Title = L"Раскладка программ (" + std::to_wstring(cfg.appLayouts.size()) + L")";
-    std::wstring tab1Title = L"Исключения (" + std::to_wstring(cfg.exclusions.size()) + L")";
-    drawTab(rcTabAppLayouts_, tab0Title, activeTab_ == ProgramsTab::AppLayouts);
-    drawTab(rcTabExclusions_, tab1Title, activeTab_ == ProgramsTab::Exclusions);
-
-    // Tab subtitle
-    SetBkMode(hdc, TRANSPARENT);
-    SetTextColor(hdc, COL_TEXT_SEC);
-    SelectObject(hdc, hFontSub_);
-    RECT rcSub = { 34, 389, 481, 405 };
-    const wchar_t* subText = (activeTab_ == ProgramsTab::AppLayouts)
-        ? L"Автоматическое переключение раскладки при переходе в выбранную программу"
-        : L"Приложения, в которых автоматическое исправление отключено (игры, терминалы)";
-    DrawTextW(hdc, subText, -1, &rcSub, DT_LEFT | DT_SINGLELINE);
-
-    // Language selector pills on AppLayouts tab
-    if (activeTab_ == ProgramsTab::AppLayouts) {
-        rcLangEn_ = { 298, 411, 341, 437 };
-        rcLangRu_ = { 341, 411, 384, 437 };
-
-        auto drawLangPill = [&](const RECT& rc, const wchar_t* text, bool active, COLORREF activeCol) {
-            HBRUSH hPillB = CreateSolidBrush(active ? activeCol : COL_TOGGLE_OFF);
-            HPEN hPillP = CreatePen(PS_SOLID, 1, active ? activeCol : COL_BORDER);
-            HBRUSH hOB = (HBRUSH)SelectObject(hdc, hPillB);
-            HPEN hOP = (HPEN)SelectObject(hdc, hPillP);
-            RoundRect(hdc, rc.left, rc.top, rc.right, rc.bottom, 6, 6);
-            SelectObject(hdc, hOB);
-            SelectObject(hdc, hOP);
-            DeleteObject(hPillB);
-            DeleteObject(hPillP);
-
-            SetBkMode(hdc, TRANSPARENT);
-            SetTextColor(hdc, active ? COL_TEXT_PRI : COL_TEXT_SEC);
-            SelectObject(hdc, hFontBold_);
-            RECT rcText = rc;
-            DrawTextW(hdc, text, -1, &rcText, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-        };
-
-        drawLangPill(rcLangEn_, L"EN", selectedAppLayout_ == Config::AppLayout::English, COL_ACCENT);
-        drawLangPill(rcLangRu_, L"RU", selectedAppLayout_ == Config::AppLayout::Russian, COL_RU);
-    } else {
-        rcLangEn_ = {};
-        rcLangRu_ = {};
-    }
-}
-
-void SettingsWindow::Paint(HDC hdc) {
-    RECT rcClient;
-    GetClientRect(hWnd_, &rcClient);
-
-    // Double buffer memory DC
-    HDC hdcMem = CreateCompatibleDC(hdc);
-    HBITMAP hbmMem = CreateCompatibleBitmap(hdc, rcClient.right, rcClient.bottom);
-    HBITMAP hbmOld = (HBITMAP)SelectObject(hdcMem, hbmMem);
-
-    // Fill background
-    FillRect(hdcMem, &rcClient, hBrBackground_);
-
-    DrawHeader(hdcMem);
-    DrawSettingsCard(hdcMem);
-    DrawProgramsCard(hdcMem);
-
-    BitBlt(hdc, 0, 0, rcClient.right, rcClient.bottom, hdcMem, 0, 0, SRCCOPY);
-
-    SelectObject(hdcMem, hbmOld);
-    DeleteObject(hbmMem);
-    DeleteDC(hdcMem);
-}
-
-void SettingsWindow::SaveAndApply() {
-    Config::ConfigManager::Instance().Save();
-    Hide();
-}
-
 LRESULT SettingsWindow::HandleMessage(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
+    case WM_ERASEBKGND:
+        return 1;
+    case WM_NCHITTEST: {
+        POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+        ScreenToClient(hWnd, &pt);
+        float scale = dpi_ / 96.0f;
+        float dipX = pt.x / scale;
+        float dipY = pt.y / scale;
+        if (dipY >= 0.0f && dipY < TOP_BAR_H) {
+            if (!PointInRectF(RcBtnMinimize(), dipX, dipY) && !PointInRectF(RcBtnClose(), dipX, dipY)) {
+                return HTCAPTION;
+            }
+        }
+        return HTCLIENT;
+    }
     case WM_PAINT: {
         PAINTSTRUCT ps;
         HDC hdc = BeginPaint(hWnd, &ps);
-        Paint(hdc);
+        RenderNow(hdc);
         EndPaint(hWnd, &ps);
         return 0;
     }
+    case WM_TIMER: {
+        if (wParam == TIMER_ANIM) {
+            uint64_t now = Platform::GetCurrentTimeMicroseconds();
+            float dt = (lastTickUs_ > 0 && now > lastTickUs_)
+                ? (std::min)(0.05f, static_cast<float>(now - lastTickUs_) / 1000000.0f)
+                : 0.010f;
+            lastTickUs_ = now;
+            TickAnimations(dt);
+            RequestRedraw();
+        }
+        return 0;
+    }
+    case WM_MOUSEMOVE: {
+        if (!trackingMouse_) {
+            TRACKMOUSEEVENT tme = { sizeof(TRACKMOUSEEVENT), TME_LEAVE, hWnd, 0 };
+            TrackMouseEvent(&tme);
+            trackingMouse_ = true;
+        }
+        float scale = dpi_ / 96.0f;
+        HandleMouseMove(GET_X_LPARAM(lParam) / scale, GET_Y_LPARAM(lParam) / scale);
+        return 0;
+    }
+    case WM_MOUSELEAVE: {
+        trackingMouse_ = false;
+        if (hovered_.zone != HitZone::None || appInput_.hovered || exclInput_.hovered) {
+            hovered_ = {};
+            appInput_.hovered = false;
+            exclInput_.hovered = false;
+            EnsureAnimationRunning();
+            RequestRedraw();
+        }
+        return 0;
+    }
     case WM_LBUTTONDOWN: {
+        float scale = dpi_ / 96.0f;
+        HandleMouseDown(GET_X_LPARAM(lParam) / scale, GET_Y_LPARAM(lParam) / scale, false);
+        return 0;
+    }
+    case WM_LBUTTONDBLCLK: {
+        float scale = dpi_ / 96.0f;
+        HandleMouseDown(GET_X_LPARAM(lParam) / scale, GET_Y_LPARAM(lParam) / scale, true);
+        return 0;
+    }
+    case WM_LBUTTONUP: {
+        float scale = dpi_ / 96.0f;
+        HandleMouseUp(GET_X_LPARAM(lParam) / scale, GET_Y_LPARAM(lParam) / scale);
+        return 0;
+    }
+    case WM_MOUSEWHEEL: {
         POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
-
-        if (PtInRect(&rcStatusBadge_, pt)) {
-            bool next = !Core::HookManager::Instance().IsPaused();
-            Core::HookManager::Instance().SetPaused(next);
-            HWND fg = GetForegroundWindow();
-            WORD lang = Core::LayoutEngine::Instance().GetLayout(fg);
-            Platform::TrayIcon::Instance().UpdateLanguage(lang, next);
-            InvalidateRect(hWnd, nullptr, FALSE);
-            return 0;
-        }
-
-        if (PtInRect(&rcTabAppLayouts_, pt)) {
-            if (activeTab_ != ProgramsTab::AppLayouts) {
-                activeTab_ = ProgramsTab::AppLayouts;
-                UpdateTabVisibility();
-            }
-            return 0;
-        }
-
-        if (PtInRect(&rcTabExclusions_, pt)) {
-            if (activeTab_ != ProgramsTab::Exclusions) {
-                activeTab_ = ProgramsTab::Exclusions;
-                UpdateTabVisibility();
-            }
-            return 0;
-        }
-
-        if (activeTab_ == ProgramsTab::AppLayouts) {
-            if (PtInRect(&rcLangEn_, pt)) {
-                selectedAppLayout_ = Config::AppLayout::English;
-                InvalidateRect(hWnd, nullptr, FALSE);
-                return 0;
-            }
-            if (PtInRect(&rcLangRu_, pt)) {
-                selectedAppLayout_ = Config::AppLayout::Russian;
-                InvalidateRect(hWnd, nullptr, FALSE);
-                return 0;
-            }
-        }
-
-        bool changed = false;
-        Config::ConfigManager::Instance().Update([&](Config::AppConfig& cfg) {
-            if (PtInRect(&rcToggleAuto_, pt)) {
-                cfg.autoSwitch = !cfg.autoSwitch;
-                changed = true;
-            } else if (PtInRect(&rcToggleCaps_, pt)) {
-                cfg.capsLockSwitch = !cfg.capsLockSwitch;
-                changed = true;
-            } else if (PtInRect(&rcToggleDoubleCaps_, pt)) {
-                cfg.doubleCapsConvert = !cfg.doubleCapsConvert;
-                changed = true;
-            } else if (PtInRect(&rcTogglePwd_, pt)) {
-                cfg.passwordGuard = !cfg.passwordGuard;
-                changed = true;
-            } else if (PtInRect(&rcToggleAutoStart_, pt)) {
-                cfg.autostart = !cfg.autostart;
-                changed = true;
-            }
-        });
-
-        if (changed) {
-            Config::ConfigManager::Instance().Save();
-            InvalidateRect(hWnd, nullptr, FALSE);
-        }
+        ScreenToClient(hWnd, &pt);
+        float scale = dpi_ / 96.0f;
+        HandleMouseWheel(GET_WHEEL_DELTA_WPARAM(wParam), pt.x / scale, pt.y / scale);
         return 0;
     }
-    case WM_COMMAND: {
-        WORD id = LOWORD(wParam);
-        WORD notif = HIWORD(wParam);
-
-        if (id == ID_BTN_PICK_APP) {
-            ShowAppPickerMenu(hBtnPickApp_, hEditAppProc_);
-        } else if (id == ID_BTN_PICK_EXCL) {
-            ShowAppPickerMenu(hBtnPickExcl_, hEditExcl_);
-        } else if (id == ID_BTN_APP_ADD) {
-            wchar_t buffer[256] = { 0 };
-            GetWindowTextW(hEditAppProc_, buffer, 256);
-            std::wstring text(buffer);
-            if (!text.empty()) {
-                Config::AppLayout chosen = selectedAppLayout_;
-                Config::ConfigManager::Instance().Update([&text, chosen](Config::AppConfig& cfg) {
-                    cfg.SetAppLayout(text, chosen);
-                });
-                Config::ConfigManager::Instance().Save();
-                UpdateControls();
-                SetWindowTextW(hEditAppProc_, L"");
-                InvalidateRect(hWnd, nullptr, FALSE);
-            }
-        } else if (id == ID_BTN_APP_TOGGLE_LANG || (id == ID_LIST_APP_LAYOUTS && notif == LBN_DBLCLK)) {
-            ToggleSelectedAppLayout();
-        } else if (id == ID_BTN_APP_REMOVE) {
-            int sel = (int)SendMessageW(hListAppLayouts_, LB_GETCURSEL, 0, 0);
-            if (sel >= 0 && static_cast<size_t>(sel) < displayedAppRules_.size()) {
-                std::wstring proc = displayedAppRules_[sel].processName;
-                Config::ConfigManager::Instance().Update([&proc](Config::AppConfig& cfg) {
-                    cfg.RemoveAppLayout(proc);
-                });
-                Config::ConfigManager::Instance().Save();
-                UpdateControls();
-                InvalidateRect(hWnd, nullptr, FALSE);
-            }
-        } else if (id == ID_BTN_ADD) {
-            wchar_t buffer[256] = { 0 };
-            GetWindowTextW(hEditExcl_, buffer, 256);
-            std::wstring text(buffer);
-            if (!text.empty()) {
-                Config::ConfigManager::Instance().Update([&text](Config::AppConfig& cfg) {
-                    cfg.AddExclusion(text);
-                });
-                Config::ConfigManager::Instance().Save();
-                UpdateControls();
-                SetWindowTextW(hEditExcl_, L"");
-                InvalidateRect(hWnd, nullptr, FALSE);
-            }
-        } else if (id == ID_BTN_REMOVE) {
-            int sel = (int)SendMessageW(hListBox_, LB_GETCURSEL, 0, 0);
-            if (sel != LB_ERR) {
-                wchar_t buffer[256] = { 0 };
-                SendMessageW(hListBox_, LB_GETTEXT, sel, (LPARAM)buffer);
-                Config::ConfigManager::Instance().Update([&buffer](Config::AppConfig& cfg) {
-                    cfg.RemoveExclusion(buffer);
-                });
-                Config::ConfigManager::Instance().Save();
-                UpdateControls();
-                InvalidateRect(hWnd, nullptr, FALSE);
-            }
-        } else if (id == ID_BTN_SAVE) {
-            SaveAndApply();
-        } else if (id == ID_BTN_CLOSE) {
+    case WM_KEYDOWN: {
+        if (FluentTextInput* active = ActiveTextInput()) {
+            if (HandleInputKeyDown(*active, wParam)) return 0;
+        } else if (wParam == VK_ESCAPE) {
             Hide();
+            return 0;
+        }
+        break;
+    }
+    case WM_CHAR: {
+        if (FluentTextInput* active = ActiveTextInput()) {
+            if (HandleInputChar(*active, static_cast<wchar_t>(wParam))) return 0;
+        }
+        break;
+    }
+    case WM_DPICHANGED: {
+        dpi_ = HIWORD(wParam);
+        const RECT* suggested = reinterpret_cast<const RECT*>(lParam);
+        if (suggested) {
+            int w = suggested->right - suggested->left;
+            int h = suggested->bottom - suggested->top;
+            SetWindowPos(hWnd, nullptr, suggested->left, suggested->top, w, h, SWP_NOZORDER | SWP_NOACTIVATE);
+            surface_.EnsureSize(hWnd, w, h);
+        }
+        RequestRedraw();
+        return 0;
+    }
+    case WM_SETTINGCHANGE: {
+        Platform::TrayIcon::Instance().RefreshTheme();
+        bool nextDark = IsSystemDarkMode();
+        if (nextDark != darkMode_) {
+            darkMode_ = nextDark;
+            hasBackdrop_ = ApplyWindowBackdrop(hWnd, BackdropKind::None, darkMode_);
+            appliedDark_ = darkMode_;
+            backdropApplied_ = true;
+            RequestRedraw();
         }
         return 0;
     }
-    case WM_CTLCOLORSTATIC:
-    case WM_CTLCOLOREDIT:
-    case WM_CTLCOLORLISTBOX:
-    case WM_CTLCOLORBTN: {
-        HDC hdcCtl = (HDC)wParam;
-        SetTextColor(hdcCtl, COL_TEXT_PRI);
-        SetBkColor(hdcCtl, COL_CARD);
-        return (LRESULT)hBrCard_;
+    case WM_SETTINGS_STATUS_SYNC: {
+        bool isRu = (wParam != 0);
+        bool isPaused = (lParam != 0);
+        if (isRu != liveIsRu_ || isPaused != livePaused_) {
+            liveIsRu_ = isRu;
+            livePaused_ = isPaused;
+            if (IsWindowVisible(hWnd)) {
+                EnsureAnimationRunning();
+                RequestRedraw();
+            }
+        }
+        return 0;
     }
-    case WM_CLOSE: {
-        // Minimize/hide to system tray instead of closing application
+    case WM_CLOSE:
         Hide();
         return 0;
-    }
     }
     return DefWindowProcW(hWnd, msg, wParam, lParam);
 }
