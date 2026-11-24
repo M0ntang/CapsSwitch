@@ -7,16 +7,21 @@
 #include <dwmapi.h>
 #include <uxtheme.h>
 #include <commctrl.h>
+#include <commdlg.h>
 #include <windowsx.h>
 
 #ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
 #define DWMWA_USE_IMMERSIVE_DARK_MODE 20
 #endif
 
+#ifndef EM_SETCUEBANNER
+#define EM_SETCUEBANNER 0x1501
+#endif
+
 namespace UI {
 
-constexpr int WINDOW_WIDTH = 520;
-constexpr int WINDOW_HEIGHT = 680;
+constexpr int CLIENT_WIDTH = 515;
+constexpr int CLIENT_HEIGHT = 668;
 
 constexpr COLORREF COL_BG = RGB(32, 32, 32);
 constexpr COLORREF COL_CARD = RGB(43, 43, 43);
@@ -24,7 +29,10 @@ constexpr COLORREF COL_BORDER = RGB(58, 58, 58);
 constexpr COLORREF COL_TEXT_PRI = RGB(255, 255, 255);
 constexpr COLORREF COL_TEXT_SEC = RGB(160, 160, 160);
 constexpr COLORREF COL_ACCENT = RGB(0, 120, 215);
+constexpr COLORREF COL_RU = RGB(216, 59, 1);
 constexpr COLORREF COL_TOGGLE_OFF = RGB(68, 68, 72);
+constexpr COLORREF COL_TAB_ACTIVE = RGB(58, 58, 64);
+constexpr COLORREF COL_TAB_INACTIVE = RGB(36, 36, 38);
 constexpr COLORREF COL_SUCCESS = RGB(16, 185, 129);
 constexpr COLORREF COL_AMBER = RGB(245, 158, 11);
 
@@ -34,6 +42,17 @@ constexpr UINT ID_BTN_ADD = 3003;
 constexpr UINT ID_BTN_REMOVE = 3004;
 constexpr UINT ID_BTN_SAVE = 3005;
 constexpr UINT ID_BTN_CLOSE = 3006;
+
+constexpr UINT ID_LIST_APP_LAYOUTS = 3010;
+constexpr UINT ID_EDIT_APP_PROC = 3011;
+constexpr UINT ID_BTN_PICK_APP = 3012;
+constexpr UINT ID_BTN_APP_ADD = 3013;
+constexpr UINT ID_BTN_APP_TOGGLE_LANG = 3014;
+constexpr UINT ID_BTN_APP_REMOVE = 3015;
+constexpr UINT ID_BTN_PICK_EXCL = 3016;
+
+constexpr UINT ID_PICKER_PROC_BASE = 4000;
+constexpr UINT ID_PICKER_BROWSE = 4999;
 
 SettingsWindow& SettingsWindow::Instance() {
     static SettingsWindow s_instance;
@@ -71,18 +90,26 @@ bool SettingsWindow::Create() {
 
     RegisterClassExW(&wc);
 
+    // Compute outer window size from desired client dimensions
+    DWORD style = WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
+    DWORD exStyle = WS_EX_DLGMODALFRAME;
+    RECT rcWin = { 0, 0, CLIENT_WIDTH, CLIENT_HEIGHT };
+    AdjustWindowRectEx(&rcWin, style, FALSE, exStyle);
+    int winW = rcWin.right - rcWin.left;
+    int winH = rcWin.bottom - rcWin.top;
+
     // Center window on primary monitor
     int scrW = GetSystemMetrics(SM_CXSCREEN);
     int scrH = GetSystemMetrics(SM_CYSCREEN);
-    int posX = (scrW - WINDOW_WIDTH) / 2;
-    int posY = (scrH - WINDOW_HEIGHT) / 2;
+    int posX = (scrW - winW) / 2;
+    int posY = (scrH - winH) / 2;
 
     hWnd_ = CreateWindowExW(
-        WS_EX_DLGMODALFRAME,
+        exStyle,
         wc.lpszClassName,
         L"CapsSwitch - Настройки",
-        WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
-        posX, posY, WINDOW_WIDTH, WINDOW_HEIGHT,
+        style,
+        posX, posY, winW, winH,
         nullptr, nullptr, wc.hInstance, this
     );
 
@@ -109,35 +136,94 @@ bool SettingsWindow::Create() {
         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
         CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
 
-    // Exclusions Controls
-    hListBox_ = CreateWindowExW(
-        0, L"LISTBOX", L"",
-        WS_CHILD | WS_VISIBLE | WS_BORDER | WS_VSCROLL | LBS_NOTIFY | LBS_HASSTRINGS,
-        34, 430, 340, 105,
-        hWnd_, (HMENU)ID_LIST_EXCL, wc.hInstance, nullptr
-    );
-    SendMessageW(hListBox_, WM_SETFONT, (WPARAM)hFontRegular_, TRUE);
-
-    hEditExcl_ = CreateWindowExW(
+    // Tab 0: Per-app Layout Rules Controls
+    hEditAppProc_ = CreateWindowExW(
         0, L"EDIT", L"",
         WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL,
-        34, 390, 340, 26,
+        34, 411, 184, 26,
+        hWnd_, (HMENU)ID_EDIT_APP_PROC, wc.hInstance, nullptr
+    );
+    SendMessageW(hEditAppProc_, WM_SETFONT, (WPARAM)hFontRegular_, TRUE);
+    SendMessageW(hEditAppProc_, EM_SETCUEBANNER, TRUE, (LPARAM)L"telegram.exe");
+
+    hBtnPickApp_ = CreateWindowExW(
+        0, L"BUTTON", L"Окна ▾",
+        WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+        224, 411, 68, 26,
+        hWnd_, (HMENU)ID_BTN_PICK_APP, wc.hInstance, nullptr
+    );
+    SendMessageW(hBtnPickApp_, WM_SETFONT, (WPARAM)hFontRegular_, TRUE);
+
+    hBtnAppAdd_ = CreateWindowExW(
+        0, L"BUTTON", L"Добавить",
+        WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+        392, 411, 89, 26,
+        hWnd_, (HMENU)ID_BTN_APP_ADD, wc.hInstance, nullptr
+    );
+    SendMessageW(hBtnAppAdd_, WM_SETFONT, (WPARAM)hFontRegular_, TRUE);
+
+    hListAppLayouts_ = CreateWindowExW(
+        0, L"LISTBOX", L"",
+        WS_CHILD | WS_VISIBLE | WS_BORDER | WS_VSCROLL | LBS_NOTIFY | LBS_HASSTRINGS | LBS_NOINTEGRALHEIGHT,
+        34, 447, 350, 141,
+        hWnd_, (HMENU)ID_LIST_APP_LAYOUTS, wc.hInstance, nullptr
+    );
+    SendMessageW(hListAppLayouts_, WM_SETFONT, (WPARAM)hFontRegular_, TRUE);
+
+    hBtnAppToggleLang_ = CreateWindowExW(
+        0, L"BUTTON", L"EN ⇄ RU",
+        WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+        392, 447, 89, 26,
+        hWnd_, (HMENU)ID_BTN_APP_TOGGLE_LANG, wc.hInstance, nullptr
+    );
+    SendMessageW(hBtnAppToggleLang_, WM_SETFONT, (WPARAM)hFontRegular_, TRUE);
+
+    hBtnAppRemove_ = CreateWindowExW(
+        0, L"BUTTON", L"Удалить",
+        WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+        392, 481, 89, 26,
+        hWnd_, (HMENU)ID_BTN_APP_REMOVE, wc.hInstance, nullptr
+    );
+    SendMessageW(hBtnAppRemove_, WM_SETFONT, (WPARAM)hFontRegular_, TRUE);
+
+    // Tab 1: Exclusions Controls
+    hEditExcl_ = CreateWindowExW(
+        0, L"EDIT", L"",
+        WS_CHILD | WS_BORDER | ES_AUTOHSCROLL,
+        34, 411, 276, 26,
         hWnd_, (HMENU)ID_EDIT_EXCL, wc.hInstance, nullptr
     );
     SendMessageW(hEditExcl_, WM_SETFONT, (WPARAM)hFontRegular_, TRUE);
+    SendMessageW(hEditExcl_, EM_SETCUEBANNER, TRUE, (LPARAM)L"cs2.exe");
+
+    hBtnPickExcl_ = CreateWindowExW(
+        0, L"BUTTON", L"Окна ▾",
+        WS_CHILD | BS_PUSHBUTTON,
+        316, 411, 68, 26,
+        hWnd_, (HMENU)ID_BTN_PICK_EXCL, wc.hInstance, nullptr
+    );
+    SendMessageW(hBtnPickExcl_, WM_SETFONT, (WPARAM)hFontRegular_, TRUE);
 
     hBtnAdd_ = CreateWindowExW(
         0, L"BUTTON", L"Добавить",
-        WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-        384, 390, 100, 26,
+        WS_CHILD | BS_PUSHBUTTON,
+        392, 411, 89, 26,
         hWnd_, (HMENU)ID_BTN_ADD, wc.hInstance, nullptr
     );
     SendMessageW(hBtnAdd_, WM_SETFONT, (WPARAM)hFontRegular_, TRUE);
 
+    hListBox_ = CreateWindowExW(
+        0, L"LISTBOX", L"",
+        WS_CHILD | WS_BORDER | WS_VSCROLL | LBS_NOTIFY | LBS_HASSTRINGS | LBS_NOINTEGRALHEIGHT,
+        34, 447, 350, 141,
+        hWnd_, (HMENU)ID_LIST_EXCL, wc.hInstance, nullptr
+    );
+    SendMessageW(hListBox_, WM_SETFONT, (WPARAM)hFontRegular_, TRUE);
+
     hBtnRemove_ = CreateWindowExW(
         0, L"BUTTON", L"Удалить",
-        WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-        384, 430, 100, 26,
+        WS_CHILD | BS_PUSHBUTTON,
+        392, 447, 89, 26,
         hWnd_, (HMENU)ID_BTN_REMOVE, wc.hInstance, nullptr
     );
     SendMessageW(hBtnRemove_, WM_SETFONT, (WPARAM)hFontRegular_, TRUE);
@@ -146,7 +232,7 @@ bool SettingsWindow::Create() {
     hBtnSave_ = CreateWindowExW(
         0, L"BUTTON", L"Сохранить",
         WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON,
-        280, 595, 105, 32,
+        280, 620, 105, 32,
         hWnd_, (HMENU)ID_BTN_SAVE, wc.hInstance, nullptr
     );
     SendMessageW(hBtnSave_, WM_SETFONT, (WPARAM)hFontBold_, TRUE);
@@ -154,29 +240,138 @@ bool SettingsWindow::Create() {
     hBtnClose_ = CreateWindowExW(
         0, L"BUTTON", L"Закрыть",
         WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-        395, 595, 90, 32,
+        395, 620, 90, 32,
         hWnd_, (HMENU)ID_BTN_CLOSE, wc.hInstance, nullptr
     );
     SendMessageW(hBtnClose_, WM_SETFONT, (WPARAM)hFontRegular_, TRUE);
 
     UpdateControls();
+    UpdateTabVisibility();
     return true;
 }
 
 void SettingsWindow::UpdateControls() {
-    if (!hListBox_) return;
+    if (!hListBox_ || !hListAppLayouts_) return;
+
+    const auto snapshot = Config::ConfigManager::Instance().GetSnapshot();
+
+    SendMessageW(hListAppLayouts_, LB_RESETCONTENT, 0, 0);
+    displayedAppRules_ = snapshot.appLayouts;
+    for (const auto& rule : displayedAppRules_) {
+        std::wstring label = (rule.layout == Config::AppLayout::Russian) ? L"[RU]  " : L"[EN]  ";
+        label += rule.processName;
+        SendMessageW(hListAppLayouts_, LB_ADDSTRING, 0, (LPARAM)label.c_str());
+    }
 
     SendMessageW(hListBox_, LB_RESETCONTENT, 0, 0);
-    const auto snapshot = Config::ConfigManager::Instance().GetSnapshot();
     for (const auto& excl : snapshot.exclusions) {
         SendMessageW(hListBox_, LB_ADDSTRING, 0, (LPARAM)excl.c_str());
     }
 }
 
+void SettingsWindow::UpdateTabVisibility() {
+    if (!hWnd_) return;
+    int showApp = (activeTab_ == ProgramsTab::AppLayouts) ? SW_SHOW : SW_HIDE;
+    int showExcl = (activeTab_ == ProgramsTab::Exclusions) ? SW_SHOW : SW_HIDE;
+
+    ShowWindow(hEditAppProc_, showApp);
+    ShowWindow(hBtnPickApp_, showApp);
+    ShowWindow(hBtnAppAdd_, showApp);
+    ShowWindow(hListAppLayouts_, showApp);
+    ShowWindow(hBtnAppToggleLang_, showApp);
+    ShowWindow(hBtnAppRemove_, showApp);
+
+    ShowWindow(hEditExcl_, showExcl);
+    ShowWindow(hBtnPickExcl_, showExcl);
+    ShowWindow(hBtnAdd_, showExcl);
+    ShowWindow(hListBox_, showExcl);
+    ShowWindow(hBtnRemove_, showExcl);
+
+    RedrawWindow(hWnd_, nullptr, nullptr, RDW_INVALIDATE | RDW_ALLCHILDREN);
+}
+
+void SettingsWindow::ShowAppPickerMenu(HWND anchorBtn, HWND targetEdit) {
+    if (!anchorBtn || !targetEdit) return;
+
+    std::vector<std::wstring> procs = Platform::GetRunningWindowProcesses();
+    HMENU hMenu = CreatePopupMenu();
+    if (!hMenu) return;
+
+    if (procs.empty()) {
+        AppendMenuW(hMenu, MF_STRING | MF_GRAYED, 0, L"(Нет активных окон)");
+    } else {
+        size_t limit = (procs.size() < 50) ? procs.size() : 50;
+        for (size_t i = 0; i < limit; ++i) {
+            AppendMenuW(hMenu, MF_STRING, ID_PICKER_PROC_BASE + static_cast<UINT>(i), procs[i].c_str());
+        }
+    }
+
+    AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(hMenu, MF_STRING, ID_PICKER_BROWSE, L"Выбрать файл .exe...");
+
+    RECT rcBtn = {};
+    GetWindowRect(anchorBtn, &rcBtn);
+    UINT cmd = TrackPopupMenuEx(
+        hMenu,
+        TPM_RETURNCMD | TPM_LEFTALIGN | TPM_TOPALIGN | TPM_NONOTIFY,
+        rcBtn.left,
+        rcBtn.bottom,
+        hWnd_,
+        nullptr
+    );
+    DestroyMenu(hMenu);
+
+    if (cmd == ID_PICKER_BROWSE) {
+        wchar_t fileBuf[MAX_PATH] = { 0 };
+        OPENFILENAMEW ofn = {};
+        ofn.lStructSize = sizeof(ofn);
+        ofn.hwndOwner = hWnd_;
+        ofn.lpstrFilter = L"Программы (*.exe)\0*.exe\0Все файлы (*.*)\0*.*\0";
+        ofn.lpstrFile = fileBuf;
+        ofn.nMaxFile = MAX_PATH;
+        ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+        if (GetOpenFileNameW(&ofn)) {
+            std::wstring fullPath(fileBuf);
+            size_t lastSlash = fullPath.find_last_of(L"\\/");
+            std::wstring fileName = (lastSlash != std::wstring::npos) ? fullPath.substr(lastSlash + 1) : fullPath;
+            SetWindowTextW(targetEdit, Platform::ToLower(fileName).c_str());
+            SetFocus(targetEdit);
+        }
+    } else if (cmd >= ID_PICKER_PROC_BASE && cmd < ID_PICKER_PROC_BASE + procs.size()) {
+        SetWindowTextW(targetEdit, procs[cmd - ID_PICKER_PROC_BASE].c_str());
+        SetFocus(targetEdit);
+    }
+}
+
+void SettingsWindow::ToggleSelectedAppLayout() {
+    if (!hListAppLayouts_) return;
+    int sel = (int)SendMessageW(hListAppLayouts_, LB_GETCURSEL, 0, 0);
+    if (sel < 0 || static_cast<size_t>(sel) >= displayedAppRules_.size()) return;
+
+    const auto& rule = displayedAppRules_[sel];
+    std::wstring proc = rule.processName;
+    Config::AppLayout nextLayout = (rule.layout == Config::AppLayout::Russian)
+        ? Config::AppLayout::English
+        : Config::AppLayout::Russian;
+
+    Config::ConfigManager::Instance().Update([&proc, nextLayout](Config::AppConfig& cfg) {
+        cfg.SetAppLayout(proc, nextLayout);
+    });
+    Config::ConfigManager::Instance().Save();
+    UpdateControls();
+    SendMessageW(hListAppLayouts_, LB_SETCURSEL, sel, 0);
+    InvalidateRect(hWnd_, nullptr, FALSE);
+}
+
 void SettingsWindow::Show() {
     if (!hWnd_) Create();
 
-    // Center on the monitor containing the cursor
+    // Center on the monitor containing the cursor using actual window dimensions
+    RECT rcActual = {};
+    GetWindowRect(hWnd_, &rcActual);
+    int winW = rcActual.right - rcActual.left;
+    int winH = rcActual.bottom - rcActual.top;
+
     POINT cursorPt = {};
     GetCursorPos(&cursorPt);
     HMONITOR hMon = MonitorFromPoint(cursorPt, MONITOR_DEFAULTTOPRIMARY);
@@ -184,12 +379,13 @@ void SettingsWindow::Show() {
     mi.cbSize = sizeof(MONITORINFO);
     if (GetMonitorInfoW(hMon, &mi)) {
         RECT wr = mi.rcWork;
-        int posX = wr.left + ((wr.right - wr.left) - WINDOW_WIDTH) / 2;
-        int posY = wr.top + ((wr.bottom - wr.top) - WINDOW_HEIGHT) / 2;
+        int posX = wr.left + ((wr.right - wr.left) - winW) / 2;
+        int posY = wr.top + ((wr.bottom - wr.top) - winH) / 2;
         SetWindowPos(hWnd_, nullptr, posX, posY, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
     }
 
     UpdateControls();
+    UpdateTabVisibility();
     ShowWindow(hWnd_, SW_SHOW);
     SetForegroundWindow(hWnd_);
 }
@@ -356,11 +552,11 @@ void SettingsWindow::DrawSettingsCard(HDC hdc) {
         rcToggleAutoStart_);
 }
 
-void SettingsWindow::DrawExclusionsCard(HDC hdc) {
+void SettingsWindow::DrawProgramsCard(HDC hdc) {
     int cardX = 20;
-    int cardY = 345;
+    int cardY = 344;
     int cardW = 475;
-    int cardH = 230;
+    int cardH = 260;
 
     HBRUSH hOldB = (HBRUSH)SelectObject(hdc, hBrCard_);
     HPEN hPen = CreatePen(PS_SOLID, 1, COL_BORDER);
@@ -372,17 +568,74 @@ void SettingsWindow::DrawExclusionsCard(HDC hdc) {
     SelectObject(hdc, hOldP);
     DeleteObject(hPen);
 
-    // Section title
-    SetBkMode(hdc, TRANSPARENT);
-    SetTextColor(hdc, COL_TEXT_PRI);
-    SelectObject(hdc, hFontBold_);
-    RECT rcT = { 34, 355, 400, 373 };
-    DrawTextW(hdc, L"Процессы-исключения", -1, &rcT, DT_LEFT | DT_SINGLELINE);
+    const auto cfg = Config::ConfigManager::Instance().GetSnapshot();
 
+    // Segmented tab buttons
+    rcTabAppLayouts_ = { 34, 354, 260, 382 };
+    rcTabExclusions_ = { 268, 354, 481, 382 };
+
+    auto drawTab = [&](const RECT& rc, const std::wstring& label, bool active) {
+        HBRUSH hTabBrush = CreateSolidBrush(active ? COL_TAB_ACTIVE : COL_TAB_INACTIVE);
+        HPEN hTabPen = CreatePen(PS_SOLID, 1, active ? COL_ACCENT : COL_BORDER);
+        HBRUSH hOB = (HBRUSH)SelectObject(hdc, hTabBrush);
+        HPEN hOP = (HPEN)SelectObject(hdc, hTabPen);
+        RoundRect(hdc, rc.left, rc.top, rc.right, rc.bottom, 8, 8);
+        SelectObject(hdc, hOB);
+        SelectObject(hdc, hOP);
+        DeleteObject(hTabBrush);
+        DeleteObject(hTabPen);
+
+        SetBkMode(hdc, TRANSPARENT);
+        SetTextColor(hdc, active ? COL_TEXT_PRI : COL_TEXT_SEC);
+        SelectObject(hdc, active ? hFontBold_ : hFontRegular_);
+        RECT rcText = rc;
+        DrawTextW(hdc, label.c_str(), -1, &rcText, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    };
+
+    std::wstring tab0Title = L"Раскладка программ (" + std::to_wstring(cfg.appLayouts.size()) + L")";
+    std::wstring tab1Title = L"Исключения (" + std::to_wstring(cfg.exclusions.size()) + L")";
+    drawTab(rcTabAppLayouts_, tab0Title, activeTab_ == ProgramsTab::AppLayouts);
+    drawTab(rcTabExclusions_, tab1Title, activeTab_ == ProgramsTab::Exclusions);
+
+    // Tab subtitle
+    SetBkMode(hdc, TRANSPARENT);
     SetTextColor(hdc, COL_TEXT_SEC);
     SelectObject(hdc, hFontSub_);
-    RECT rcS = { 34, 373, 480, 389 };
-    DrawTextW(hdc, L"Приложения, в которых автоматическое исправление отключено (игры, терминалы)", -1, &rcS, DT_LEFT | DT_SINGLELINE);
+    RECT rcSub = { 34, 389, 481, 405 };
+    const wchar_t* subText = (activeTab_ == ProgramsTab::AppLayouts)
+        ? L"Автоматическое переключение раскладки при переходе в выбранную программу"
+        : L"Приложения, в которых автоматическое исправление отключено (игры, терминалы)";
+    DrawTextW(hdc, subText, -1, &rcSub, DT_LEFT | DT_SINGLELINE);
+
+    // Language selector pills on AppLayouts tab
+    if (activeTab_ == ProgramsTab::AppLayouts) {
+        rcLangEn_ = { 298, 411, 341, 437 };
+        rcLangRu_ = { 341, 411, 384, 437 };
+
+        auto drawLangPill = [&](const RECT& rc, const wchar_t* text, bool active, COLORREF activeCol) {
+            HBRUSH hPillB = CreateSolidBrush(active ? activeCol : COL_TOGGLE_OFF);
+            HPEN hPillP = CreatePen(PS_SOLID, 1, active ? activeCol : COL_BORDER);
+            HBRUSH hOB = (HBRUSH)SelectObject(hdc, hPillB);
+            HPEN hOP = (HPEN)SelectObject(hdc, hPillP);
+            RoundRect(hdc, rc.left, rc.top, rc.right, rc.bottom, 6, 6);
+            SelectObject(hdc, hOB);
+            SelectObject(hdc, hOP);
+            DeleteObject(hPillB);
+            DeleteObject(hPillP);
+
+            SetBkMode(hdc, TRANSPARENT);
+            SetTextColor(hdc, active ? COL_TEXT_PRI : COL_TEXT_SEC);
+            SelectObject(hdc, hFontBold_);
+            RECT rcText = rc;
+            DrawTextW(hdc, text, -1, &rcText, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        };
+
+        drawLangPill(rcLangEn_, L"EN", selectedAppLayout_ == Config::AppLayout::English, COL_ACCENT);
+        drawLangPill(rcLangRu_, L"RU", selectedAppLayout_ == Config::AppLayout::Russian, COL_RU);
+    } else {
+        rcLangEn_ = {};
+        rcLangRu_ = {};
+    }
 }
 
 void SettingsWindow::Paint(HDC hdc) {
@@ -399,7 +652,7 @@ void SettingsWindow::Paint(HDC hdc) {
 
     DrawHeader(hdcMem);
     DrawSettingsCard(hdcMem);
-    DrawExclusionsCard(hdcMem);
+    DrawProgramsCard(hdcMem);
 
     BitBlt(hdc, 0, 0, rcClient.right, rcClient.bottom, hdcMem, 0, 0, SRCCOPY);
 
@@ -435,6 +688,35 @@ LRESULT SettingsWindow::HandleMessage(HWND hWnd, UINT msg, WPARAM wParam, LPARAM
             return 0;
         }
 
+        if (PtInRect(&rcTabAppLayouts_, pt)) {
+            if (activeTab_ != ProgramsTab::AppLayouts) {
+                activeTab_ = ProgramsTab::AppLayouts;
+                UpdateTabVisibility();
+            }
+            return 0;
+        }
+
+        if (PtInRect(&rcTabExclusions_, pt)) {
+            if (activeTab_ != ProgramsTab::Exclusions) {
+                activeTab_ = ProgramsTab::Exclusions;
+                UpdateTabVisibility();
+            }
+            return 0;
+        }
+
+        if (activeTab_ == ProgramsTab::AppLayouts) {
+            if (PtInRect(&rcLangEn_, pt)) {
+                selectedAppLayout_ = Config::AppLayout::English;
+                InvalidateRect(hWnd, nullptr, FALSE);
+                return 0;
+            }
+            if (PtInRect(&rcLangRu_, pt)) {
+                selectedAppLayout_ = Config::AppLayout::Russian;
+                InvalidateRect(hWnd, nullptr, FALSE);
+                return 0;
+            }
+        }
+
         bool changed = false;
         Config::ConfigManager::Instance().Update([&](Config::AppConfig& cfg) {
             if (PtInRect(&rcToggleAuto_, pt)) {
@@ -463,7 +745,40 @@ LRESULT SettingsWindow::HandleMessage(HWND hWnd, UINT msg, WPARAM wParam, LPARAM
     }
     case WM_COMMAND: {
         WORD id = LOWORD(wParam);
-        if (id == ID_BTN_ADD) {
+        WORD notif = HIWORD(wParam);
+
+        if (id == ID_BTN_PICK_APP) {
+            ShowAppPickerMenu(hBtnPickApp_, hEditAppProc_);
+        } else if (id == ID_BTN_PICK_EXCL) {
+            ShowAppPickerMenu(hBtnPickExcl_, hEditExcl_);
+        } else if (id == ID_BTN_APP_ADD) {
+            wchar_t buffer[256] = { 0 };
+            GetWindowTextW(hEditAppProc_, buffer, 256);
+            std::wstring text(buffer);
+            if (!text.empty()) {
+                Config::AppLayout chosen = selectedAppLayout_;
+                Config::ConfigManager::Instance().Update([&text, chosen](Config::AppConfig& cfg) {
+                    cfg.SetAppLayout(text, chosen);
+                });
+                Config::ConfigManager::Instance().Save();
+                UpdateControls();
+                SetWindowTextW(hEditAppProc_, L"");
+                InvalidateRect(hWnd, nullptr, FALSE);
+            }
+        } else if (id == ID_BTN_APP_TOGGLE_LANG || (id == ID_LIST_APP_LAYOUTS && notif == LBN_DBLCLK)) {
+            ToggleSelectedAppLayout();
+        } else if (id == ID_BTN_APP_REMOVE) {
+            int sel = (int)SendMessageW(hListAppLayouts_, LB_GETCURSEL, 0, 0);
+            if (sel >= 0 && static_cast<size_t>(sel) < displayedAppRules_.size()) {
+                std::wstring proc = displayedAppRules_[sel].processName;
+                Config::ConfigManager::Instance().Update([&proc](Config::AppConfig& cfg) {
+                    cfg.RemoveAppLayout(proc);
+                });
+                Config::ConfigManager::Instance().Save();
+                UpdateControls();
+                InvalidateRect(hWnd, nullptr, FALSE);
+            }
+        } else if (id == ID_BTN_ADD) {
             wchar_t buffer[256] = { 0 };
             GetWindowTextW(hEditExcl_, buffer, 256);
             std::wstring text(buffer);
@@ -474,6 +789,7 @@ LRESULT SettingsWindow::HandleMessage(HWND hWnd, UINT msg, WPARAM wParam, LPARAM
                 Config::ConfigManager::Instance().Save();
                 UpdateControls();
                 SetWindowTextW(hEditExcl_, L"");
+                InvalidateRect(hWnd, nullptr, FALSE);
             }
         } else if (id == ID_BTN_REMOVE) {
             int sel = (int)SendMessageW(hListBox_, LB_GETCURSEL, 0, 0);
@@ -485,6 +801,7 @@ LRESULT SettingsWindow::HandleMessage(HWND hWnd, UINT msg, WPARAM wParam, LPARAM
                 });
                 Config::ConfigManager::Instance().Save();
                 UpdateControls();
+                InvalidateRect(hWnd, nullptr, FALSE);
             }
         } else if (id == ID_BTN_SAVE) {
             SaveAndApply();

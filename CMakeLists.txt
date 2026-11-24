@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(CapsSwitch VERSION 1.0.5 LANGUAGES CXX RC)
+project(CapsSwitch VERSION 1.1.0 LANGUAGES CXX RC)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -34,6 +34,7 @@ if(MSVC)
         oleaut32
         uiautomationcore
         comctl32
+        comdlg32
         advapi32
         shell32
         psapi
@@ -52,6 +53,7 @@ else()
         oleaut32
         uiautomationcore
         comctl32
+        comdlg32
         advapi32
         shell32
         psapi

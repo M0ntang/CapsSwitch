@@ -9,6 +9,7 @@ namespace Core {
 
 HHOOK HookManager::s_hKbdHook = nullptr;
 HHOOK HookManager::s_hMouseHook = nullptr;
+HWINEVENTHOOK HookManager::s_hWinEventHook = nullptr;
 std::atomic<bool> HookManager::s_isPaused(false);
 HookManager* HookManager::s_instance = nullptr;
 
@@ -37,9 +38,14 @@ void HookManager::SetPaused(bool paused) {
     if (paused) {
         capsTogglePending_.store(false, std::memory_order_relaxed);
         doubleCapsPending_.store(false, std::memory_order_relaxed);
+        foregroundChangedPending_.store(false, std::memory_order_relaxed);
+        pendingForegroundHwnd_.store(nullptr, std::memory_order_relaxed);
         lastCapsPressMs_ = 0;
         PushResetEvent(true);
         Detector::Instance().Reset();
+    } else {
+        pendingForegroundHwnd_.store(nullptr, std::memory_order_relaxed);
+        resetForegroundTracking_.store(true, std::memory_order_relaxed);
     }
 }
 
@@ -69,11 +75,37 @@ bool HookManager::Start() {
         0
     );
 
+    // Install WinEvent hook to detect foreground window switches for per-app layout rules
+    s_hWinEventHook = SetWinEventHook(
+        EVENT_SYSTEM_FOREGROUND,
+        EVENT_SYSTEM_FOREGROUND,
+        nullptr,
+        WinEventProc,
+        0,
+        0,
+        WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS
+    );
+
+    // Seed initial foreground window state if it belongs to another process
+    HWND fg = GetForegroundWindow();
+    if (fg && IsWindow(fg)) {
+        DWORD pid = 0;
+        GetWindowThreadProcessId(fg, &pid);
+        if (pid != 0 && pid != GetCurrentProcessId()) {
+            OnForegroundChanged(fg);
+        }
+    }
+
     return (s_hKbdHook != nullptr);
 }
 
 void HookManager::Stop() {
     if (!isRunning_.load()) return;
+
+    if (s_hWinEventHook) {
+        UnhookWinEvent(s_hWinEventHook);
+        s_hWinEventHook = nullptr;
+    }
 
     if (s_hKbdHook) {
         UnhookWindowsHookEx(s_hKbdHook);
@@ -145,6 +177,29 @@ void HookManager::PostDoubleCapsAction() {
     capsTogglePending_.store(false, std::memory_order_release);
     doubleCapsPending_.store(true, std::memory_order_release);
     SetEvent(hKeyEvent_);
+}
+
+void HookManager::OnForegroundChanged(HWND hwnd) {
+    PushResetEvent(true);
+    pendingForegroundHwnd_.store(hwnd, std::memory_order_release);
+    foregroundChangedPending_.store(true, std::memory_order_release);
+    SetEvent(hKeyEvent_);
+}
+
+void CALLBACK HookManager::WinEventProc(HWINEVENTHOOK /*hWinEventHook*/, DWORD event, HWND hwnd,
+                                        LONG /*idObject*/, LONG /*idChild*/,
+                                        DWORD /*dwEventThread*/, DWORD /*dwmsEventTime*/) {
+    if (event != EVENT_SYSTEM_FOREGROUND || !hwnd || !IsWindow(hwnd)) {
+        return;
+    }
+    DWORD pid = 0;
+    GetWindowThreadProcessId(hwnd, &pid);
+    if (pid == 0 || pid == GetCurrentProcessId()) {
+        return;
+    }
+    if (s_instance && !s_isPaused.load(std::memory_order_relaxed)) {
+        s_instance->OnForegroundChanged(hwnd);
+    }
 }
 
 LRESULT CALLBACK HookManager::LowLevelMouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
@@ -268,6 +323,12 @@ void HookManager::WorkerThreadLoop() {
             }
 
             ProcessKeyEvent(ev);
+        }
+
+        // Apply per-app automatic layout rule on foreground window change
+        if (foregroundChangedPending_.exchange(false, std::memory_order_acquire)) {
+            HWND fgHwnd = pendingForegroundHwnd_.load(std::memory_order_acquire);
+            ProcessForegroundChange(fgHwnd);
         }
 
         // Process pending Double-Caps Action (translate selection or last word)
@@ -401,6 +462,97 @@ void HookManager::ProcessKeyEvent(const RawKeyEvent& ev) {
             Detector::Instance().OnChar(ch);
         }
     }
+}
+
+void HookManager::ProcessForegroundChange(HWND hwnd) {
+    if (!isRunning_.load(std::memory_order_relaxed) || isPaused_.load(std::memory_order_relaxed)) {
+        return;
+    }
+
+    if (resetForegroundTracking_.exchange(false, std::memory_order_relaxed)) {
+        lastForegroundProcess_.clear();
+    }
+
+    HWND fg = GetForegroundWindow();
+    if (!fg) fg = hwnd;
+    if (!fg || !IsWindow(fg)) return;
+
+    DWORD pid = 0;
+    GetWindowThreadProcessId(fg, &pid);
+    if (pid == 0 || pid == GetCurrentProcessId()) return;
+
+    std::wstring procName = Platform::GetProcessNameByHwnd(fg);
+    if (procName.empty()) return;
+
+    auto& cfgMgr = Config::ConfigManager::Instance();
+    uint64_t rulesVer = cfgMgr.GetAppLayoutsVersion();
+    bool sameProcess = (procName == lastForegroundProcess_);
+    bool rulesChanged = (rulesVer != lastAppliedRulesVersion_);
+
+    lastForegroundProcess_ = procName;
+    lastAppliedRulesVersion_ = rulesVer;
+
+    auto notifyCurrentLayout = [this](HWND targetHwnd) {
+        if (onLayoutChanged_) {
+            onLayoutChanged_(LayoutEngine::Instance().GetLayout(targetHwnd));
+        }
+    };
+
+    if (sameProcess && !rulesChanged) {
+        notifyCurrentLayout(fg);
+        return;
+    }
+
+    if (!cfgMgr.HasAppLayoutRules()) {
+        notifyCurrentLayout(fg);
+        return;
+    }
+
+    Config::AppLayout rule = cfgMgr.GetProcessLayout(procName);
+    if (rule == Config::AppLayout::None) {
+        notifyCurrentLayout(fg);
+        return;
+    }
+
+    // PasswordGuard always takes precedence: never auto-switch a password field to Russian
+    if (rule == Config::AppLayout::Russian && cfgMgr.PasswordGuardEnabled()) {
+        if (Platform::PasswordGuard::Instance().CheckAndUpdateFocus(fg)) {
+            notifyCurrentLayout(fg);
+            return;
+        }
+    }
+
+    WORD targetLang = (rule == Config::AppLayout::Russian) ? LANG_ID_RU : LANG_ID_EN;
+    WORD currentLang = LayoutEngine::Instance().GetLayout(fg);
+    if ((currentLang & 0xFF) != (targetLang & 0xFF)) {
+        // Briefly wait if Alt or Win is still held (e.g. tail end of Alt+Tab)
+        for (int i = 0; i < 8; ++i) {
+            bool modDown = ((GetAsyncKeyState(VK_MENU) & 0x8000) != 0) ||
+                           ((GetAsyncKeyState(VK_LWIN) & 0x8000) != 0) ||
+                           ((GetAsyncKeyState(VK_RWIN) & 0x8000) != 0);
+            if (!modDown) break;
+            if (!isRunning_.load(std::memory_order_relaxed) || isPaused_.load(std::memory_order_relaxed)) {
+                return;
+            }
+            HWND curFg = GetForegroundWindow();
+            if (curFg && curFg != fg) {
+                return;
+            }
+            Sleep(10);
+        }
+
+        HWND liveFg = GetForegroundWindow();
+        if (liveFg && IsWindow(liveFg)) {
+            if (Platform::GetProcessNameByHwnd(liveFg) != procName) {
+                return;
+            }
+            fg = liveFg;
+        }
+
+        LayoutEngine::Instance().SwitchLayout(fg, targetLang);
+    }
+
+    notifyCurrentLayout(fg);
 }
 
 } // namespace Core

@@ -16,6 +16,7 @@ std::string ToLower(const std::string& str);
 
 // Window and Process helpers
 std::wstring GetProcessNameByHwnd(HWND hwnd);
+std::vector<std::wstring> GetRunningWindowProcesses();
 bool IsConsoleOrTerminalProcess(const std::wstring& procName);
 HWND ResolveFocusedWindow(HWND foregroundHwnd, DWORD* outThreadId = nullptr);
 HWND GetActiveWindowSafe();

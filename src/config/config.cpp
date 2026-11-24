@@ -30,6 +30,76 @@ static std::wstring SanitizeProcessName(const std::wstring& raw) {
     return cleaned;
 }
 
+static std::string EscapeJsonString(const std::string& input) {
+    std::string out;
+    out.reserve(input.size() + 8);
+    for (char ch : input) {
+        switch (ch) {
+        case '\\': out += "\\\\"; break;
+        case '\"': out += "\\\""; break;
+        case '\n': out += "\\n"; break;
+        case '\r': out += "\\r"; break;
+        case '\t': out += "\\t"; break;
+        default:   out += ch; break;
+        }
+    }
+    return out;
+}
+
+static bool ParseJsonString(const std::string& text, size_t& pos, std::string& out) {
+    if (pos >= text.size() || text[pos] != '\"') return false;
+    ++pos;
+    out.clear();
+    while (pos < text.size()) {
+        char ch = text[pos++];
+        if (ch == '\\') {
+            if (pos >= text.size()) return false;
+            char esc = text[pos++];
+            switch (esc) {
+            case '\"': out += '\"'; break;
+            case '\\': out += '\\'; break;
+            case '/':  out += '/';  break;
+            case 'n':  out += '\n'; break;
+            case 'r':  out += '\r'; break;
+            case 't':  out += '\t'; break;
+            default:   out += esc;  break;
+            }
+        } else if (ch == '\"') {
+            return true;
+        } else {
+            out += ch;
+        }
+    }
+    return false;
+}
+
+static size_t FindMatchingBrace(const std::string& text, size_t openBracePos) {
+    int depth = 0;
+    bool inString = false;
+    for (size_t i = openBracePos; i < text.size(); ++i) {
+        char ch = text[i];
+        if (inString) {
+            if (ch == '\\') {
+                ++i;
+            } else if (ch == '\"') {
+                inString = false;
+            }
+        } else {
+            if (ch == '\"') {
+                inString = true;
+            } else if (ch == '{') {
+                ++depth;
+            } else if (ch == '}') {
+                --depth;
+                if (depth == 0) {
+                    return i;
+                }
+            }
+        }
+    }
+    return std::string::npos;
+}
+
 bool AppConfig::IsExcluded(const std::wstring& processName) const {
     if (processName.empty()) return false;
     std::wstring lower = Platform::ToLower(processName);
@@ -58,6 +128,44 @@ void AppConfig::RemoveExclusion(const std::wstring& processName) {
     );
 }
 
+AppLayout AppConfig::GetAppLayout(const std::wstring& processName) const {
+    std::wstring normalized = SanitizeProcessName(processName);
+    if (normalized.empty()) return AppLayout::None;
+    for (const auto& rule : appLayouts) {
+        if (Platform::ToLower(rule.processName) == normalized) {
+            return rule.layout;
+        }
+    }
+    return AppLayout::None;
+}
+
+void AppConfig::SetAppLayout(const std::wstring& processName, AppLayout layout) {
+    std::wstring normalized = SanitizeProcessName(processName);
+    if (normalized.empty()) return;
+    if (layout == AppLayout::None) {
+        RemoveAppLayout(normalized);
+        return;
+    }
+    for (auto& rule : appLayouts) {
+        if (Platform::ToLower(rule.processName) == normalized) {
+            rule.processName = normalized;
+            rule.layout = layout;
+            return;
+        }
+    }
+    appLayouts.push_back({ normalized, layout });
+}
+
+void AppConfig::RemoveAppLayout(const std::wstring& processName) {
+    std::wstring normalized = SanitizeProcessName(processName);
+    if (normalized.empty()) return;
+    appLayouts.erase(
+        std::remove_if(appLayouts.begin(), appLayouts.end(),
+            [&normalized](const AppLayoutRule& r) { return Platform::ToLower(r.processName) == normalized; }),
+        appLayouts.end()
+    );
+}
+
 ConfigManager& ConfigManager::Instance() {
     static ConfigManager s_instance;
     return s_instance;
@@ -67,11 +175,15 @@ ConfigManager::ConfigManager() {
     Load();
 }
 
-void ConfigManager::SyncAtomicsLocked() {
+void ConfigManager::SyncAtomicsLocked(bool bumpAppLayoutsVersion) {
     autoSwitchAtomic_.store(config_.autoSwitch, std::memory_order_relaxed);
     capsLockSwitchAtomic_.store(config_.capsLockSwitch, std::memory_order_relaxed);
     doubleCapsConvertAtomic_.store(config_.doubleCapsConvert, std::memory_order_relaxed);
     passwordGuardAtomic_.store(config_.passwordGuard, std::memory_order_relaxed);
+    hasAppLayoutRulesAtomic_.store(!config_.appLayouts.empty(), std::memory_order_relaxed);
+    if (bumpAppLayoutsVersion) {
+        appLayoutsVersion_.fetch_add(1, std::memory_order_relaxed);
+    }
 }
 
 AppConfig ConfigManager::GetSnapshot() const {
@@ -84,10 +196,17 @@ bool ConfigManager::IsProcessExcluded(const std::wstring& processName) const {
     return config_.IsExcluded(processName);
 }
 
+AppLayout ConfigManager::GetProcessLayout(const std::wstring& processName) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return config_.GetAppLayout(processName);
+}
+
 void ConfigManager::Update(const std::function<void(AppConfig&)>& updater) {
     std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<AppLayoutRule> prevRules = config_.appLayouts;
     updater(config_);
-    SyncAtomicsLocked();
+    bool rulesChanged = (prevRules != config_.appLayouts);
+    SyncAtomicsLocked(rulesChanged);
 }
 
 std::wstring ConfigManager::GetExecutablePath() {
@@ -158,18 +277,53 @@ bool ConfigManager::Load() {
             while (idx < arrStr.length()) {
                 size_t q1 = arrStr.find('\"', idx);
                 if (q1 == std::string::npos) break;
-                size_t q2 = arrStr.find('\"', q1 + 1);
-                if (q2 == std::string::npos) break;
-                std::string item = arrStr.substr(q1 + 1, q2 - q1 - 1);
+                std::string item;
+                size_t pos = q1;
+                if (!ParseJsonString(arrStr, pos, item)) break;
                 if (!item.empty()) {
                     config_.AddExclusion(Platform::Utf8ToWide(item));
                 }
-                idx = q2 + 1;
+                idx = pos;
             }
         }
     }
 
-    SyncAtomicsLocked();
+    // Parse app_layouts object
+    config_.appLayouts.clear();
+    size_t appLayoutsPos = content.find("\"app_layouts\"");
+    if (appLayoutsPos != std::string::npos) {
+        size_t colonPos = content.find(':', appLayoutsPos);
+        size_t objStart = (colonPos != std::string::npos) ? content.find('{', colonPos) : std::string::npos;
+        size_t objEnd = (objStart != std::string::npos) ? FindMatchingBrace(content, objStart) : std::string::npos;
+        if (objStart != std::string::npos && objEnd != std::string::npos) {
+            size_t pos = objStart + 1;
+            while (pos < objEnd) {
+                size_t keyStart = content.find('\"', pos);
+                if (keyStart == std::string::npos || keyStart >= objEnd) break;
+                std::string key;
+                pos = keyStart;
+                if (!ParseJsonString(content, pos, key)) break;
+
+                size_t pairColon = content.find(':', pos);
+                if (pairColon == std::string::npos || pairColon >= objEnd) break;
+
+                size_t valStart = content.find('\"', pairColon + 1);
+                if (valStart == std::string::npos || valStart >= objEnd) break;
+                std::string val;
+                pos = valStart;
+                if (!ParseJsonString(content, pos, val)) break;
+
+                std::string lowerVal = Platform::ToLower(val);
+                if (lowerVal == "ru" || lowerVal == "russian") {
+                    config_.SetAppLayout(Platform::Utf8ToWide(key), AppLayout::Russian);
+                } else if (lowerVal == "en" || lowerVal == "english") {
+                    config_.SetAppLayout(Platform::Utf8ToWide(key), AppLayout::English);
+                }
+            }
+        }
+    }
+
+    SyncAtomicsLocked(true);
     SyncAutostartLocked();
     return true;
 }
@@ -189,7 +343,7 @@ bool ConfigManager::SaveLocked() {
     ss << "  \"exclusions\": [\n";
 
     for (size_t i = 0; i < config_.exclusions.size(); ++i) {
-        std::string utf8Item = Platform::WideToUtf8(config_.exclusions[i]);
+        std::string utf8Item = EscapeJsonString(Platform::WideToUtf8(config_.exclusions[i]));
         ss << "    \"" << utf8Item << "\"";
         if (i + 1 < config_.exclusions.size()) {
             ss << ",";
@@ -197,14 +351,30 @@ bool ConfigManager::SaveLocked() {
         ss << "\n";
     }
 
-    ss << "  ]\n";
+    ss << "  ],\n";
+    if (config_.appLayouts.empty()) {
+        ss << "  \"app_layouts\": {}\n";
+    } else {
+        ss << "  \"app_layouts\": {\n";
+        for (size_t i = 0; i < config_.appLayouts.size(); ++i) {
+            const auto& rule = config_.appLayouts[i];
+            std::string utf8Proc = EscapeJsonString(Platform::WideToUtf8(rule.processName));
+            const char* langStr = (rule.layout == AppLayout::Russian) ? "ru" : "en";
+            ss << "    \"" << utf8Proc << "\": \"" << langStr << "\"";
+            if (i + 1 < config_.appLayouts.size()) {
+                ss << ",";
+            }
+            ss << "\n";
+        }
+        ss << "  }\n";
+    }
     ss << "}\n";
 
     std::string out = ss.str();
     file.write(out.data(), out.size());
     file.close();
 
-    SyncAtomicsLocked();
+    SyncAtomicsLocked(false);
     SetAutostartRegistry(config_.autostart);
     return true;
 }
