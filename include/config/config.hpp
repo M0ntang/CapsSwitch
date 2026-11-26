@@ -16,6 +16,12 @@ enum class AppLayout {
     English
 };
 
+enum class ThemeMode {
+    Auto = 0,
+    Light,
+    Dark
+};
+
 struct AppLayoutRule {
     std::wstring processName;
     AppLayout layout = AppLayout::English;
@@ -31,6 +37,7 @@ struct AppConfig {
     bool doubleCapsConvert = true;
     bool passwordGuard = true;
     bool autostart = false;
+    ThemeMode theme = ThemeMode::Auto;
     std::vector<std::wstring> exclusions = {
         L"cs2.exe",
         L"dota2.exe",

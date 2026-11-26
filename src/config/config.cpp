@@ -265,6 +265,29 @@ bool ConfigManager::Load() {
     config_.passwordGuard = parseBool("password_guard", true);
     config_.autostart = parseBool("autostart", false);
 
+    // Parse theme
+    config_.theme = ThemeMode::Auto;
+    {
+        size_t themePos = content.find("\"theme\"");
+        if (themePos != std::string::npos) {
+            size_t colon = content.find(':', themePos);
+            size_t nextComma = (colon != std::string::npos) ? content.find_first_of(",}", colon) : std::string::npos;
+            size_t quotePos = (colon != std::string::npos) ? content.find('\"', colon + 1) : std::string::npos;
+            if (quotePos != std::string::npos && (nextComma == std::string::npos || quotePos < nextComma)) {
+                std::string themeVal;
+                size_t p = quotePos;
+                if (ParseJsonString(content, p, themeVal)) {
+                    std::string lowerTheme = Platform::ToLower(themeVal);
+                    if (lowerTheme == "light") {
+                        config_.theme = ThemeMode::Light;
+                    } else if (lowerTheme == "dark") {
+                        config_.theme = ThemeMode::Dark;
+                    }
+                }
+            }
+        }
+    }
+
     // Parse exclusions array
     size_t exclPos = content.find("\"exclusions\"");
     if (exclPos != std::string::npos) {
@@ -333,6 +356,10 @@ bool ConfigManager::SaveLocked() {
     std::ofstream file(configPath.c_str(), std::ios::out | std::ios::binary | std::ios::trunc);
     if (!file.is_open()) return false;
 
+    const char* themeStr = "auto";
+    if (config_.theme == ThemeMode::Light) themeStr = "light";
+    else if (config_.theme == ThemeMode::Dark) themeStr = "dark";
+
     std::ostringstream ss;
     ss << "{\n";
     ss << "  \"auto_switch\": " << (config_.autoSwitch ? "true" : "false") << ",\n";
@@ -340,6 +367,7 @@ bool ConfigManager::SaveLocked() {
     ss << "  \"double_caps_convert\": " << (config_.doubleCapsConvert ? "true" : "false") << ",\n";
     ss << "  \"password_guard\": " << (config_.passwordGuard ? "true" : "false") << ",\n";
     ss << "  \"autostart\": " << (config_.autostart ? "true" : "false") << ",\n";
+    ss << "  \"theme\": \"" << themeStr << "\",\n";
     ss << "  \"exclusions\": [\n";
 
     for (size_t i = 0; i < config_.exclusions.size(); ++i) {

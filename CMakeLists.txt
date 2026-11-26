@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(CapsSwitch VERSION 1.2.0 LANGUAGES CXX RC)
+project(CapsSwitch VERSION 1.3.0 LANGUAGES CXX RC)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -22,10 +22,12 @@ set(SOURCES
 )
 
 add_executable(CapsSwitch WIN32 ${SOURCES})
+target_include_directories(CapsSwitch PRIVATE include res)
 
 if(MSVC)
-    target_compile_options(CapsSwitch PRIVATE /O2 /GL /W4 /permissive-)
-    target_link_options(CapsSwitch PRIVATE /LTCG /OPT:REF /OPT:ICF /SUBSYSTEM:WINDOWS)
+    set_property(TARGET CapsSwitch PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    target_compile_options(CapsSwitch PRIVATE /utf-8 /O2 /GL /W4 /permissive- /GS /guard:cf)
+    target_link_options(CapsSwitch PRIVATE /LTCG /OPT:REF /OPT:ICF /SUBSYSTEM:WINDOWS /MANIFEST:NO /DYNAMICBASE /HIGHENTROPYVA /NXCOMPAT /GUARD:CF /CETCOMPAT)
     target_link_libraries(CapsSwitch PRIVATE
         user32
         kernel32
@@ -49,7 +51,7 @@ if(MSVC)
     )
 else()
     target_compile_options(CapsSwitch PRIVATE -O3 -Wall -Wextra)
-    target_link_options(CapsSwitch PRIVATE -static -s -mwindows)
+    target_link_options(CapsSwitch PRIVATE -static -s -mwindows -Wl,--dynamicbase -Wl,--nxcompat -Wl,--high-entropy-va -Wl,--tsaware)
     target_link_libraries(CapsSwitch PRIVATE
         user32
         kernel32

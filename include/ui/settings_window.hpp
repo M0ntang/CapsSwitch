@@ -63,12 +63,15 @@ private:
     void ReleaseFormats();
     void RefreshWindowIcons();
     void RefreshSnapshot(bool snapAnimations = false);
+    bool ResolveDarkMode() const;
+    void ToggleTheme();
 
     void RenderNow(HDC fallbackDstDC = nullptr);
     void RequestRedraw();
 
     void DrawNavigationRail(ID2D1RenderTarget* rt, const FluentPalette& pal, ID2D1SolidColorBrush* brush);
     void DrawWorkspaceShell(ID2D1RenderTarget* rt, const FluentPalette& pal, ID2D1SolidColorBrush* brush);
+    void DrawFooterBar(ID2D1RenderTarget* rt, const FluentPalette& pal, ID2D1SolidColorBrush* brush);
     void DrawCaptionButtons(ID2D1RenderTarget* rt, const FluentPalette& pal, ID2D1SolidColorBrush* brush);
     void DrawPageHeader(ID2D1RenderTarget* rt, const FluentPalette& pal, ID2D1SolidColorBrush* brush, float offsetY, float alpha);
     void DrawGeneralPage(ID2D1RenderTarget* rt, const FluentPalette& pal, ID2D1SolidColorBrush* brush, float offsetY, float alpha);
@@ -109,10 +112,11 @@ private:
         None = 0,
         BtnMinimize,
         BtnClose,
+        ThemeToggle,
         NavGeneral,
         NavAppLayouts,
         NavExclusions,
-        RailPauseBtn,
+        FooterPauseBtn,
         ToggleRow0,
         ToggleRow1,
         ToggleRow2,
@@ -175,12 +179,12 @@ private:
     float rowHover_[5] = {};
 
     float navHover_[3] = {};
-    float navIndicatorY_ = 75.0f;
     float pageTransition_ = 1.0f;
     int pageDir_ = 1;
 
     float captionHover_[2] = {};
-    float railPauseHover_ = 0.0f;
+    float themeBtnHover_ = 0.0f;
+    float footerPauseHover_ = 0.0f;
     float statusPausedAnim_ = 0.0f;
     float langChipRuAnim_ = 0.0f;
     float langSelectorAnim_ = 1.0f;
@@ -197,6 +201,7 @@ private:
     GpuSurface surface_;
     IDWriteTextFormat* fmtBrand_ = nullptr;
     IDWriteTextFormat* fmtNav_ = nullptr;
+    IDWriteTextFormat* fmtNavSelected_ = nullptr;
     IDWriteTextFormat* fmtPageTitle_ = nullptr;
     IDWriteTextFormat* fmtSubtitle_ = nullptr;
     IDWriteTextFormat* fmtGroupLabel_ = nullptr;

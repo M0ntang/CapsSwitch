@@ -1,15 +1,25 @@
 #include <windows.h>
 
 #define IDI_APP_ICON 1
+#define IDI_TRAY_EN 101
+#define IDI_TRAY_RU 102
+#define IDI_TRAY_PAUSED 103
+#ifndef CREATEPROCESS_MANIFEST_RESOURCE_ID
 #define CREATEPROCESS_MANIFEST_RESOURCE_ID 1
+#endif
+#ifndef RT_MANIFEST
 #define RT_MANIFEST 24
+#endif
 
 IDI_APP_ICON ICON "app.ico"
+IDI_TRAY_EN ICON "tray_en.ico"
+IDI_TRAY_RU ICON "tray_ru.ico"
+IDI_TRAY_PAUSED ICON "tray_paused.ico"
 CREATEPROCESS_MANIFEST_RESOURCE_ID RT_MANIFEST "app.manifest"
 
 VS_VERSION_INFO VERSIONINFO
-FILEVERSION     1,2,0,0
-PRODUCTVERSION  1,2,0,0
+FILEVERSION     1,3,0,0
+PRODUCTVERSION  1,3,0,0
 FILEFLAGSMASK   VS_FFI_FILEFLAGSMASK
 #ifdef _DEBUG
 FILEFLAGS       VS_FF_DEBUG
@@ -26,12 +36,12 @@ BEGIN
         BEGIN
             VALUE "CompanyName",      "CapsSwitch Project"
             VALUE "FileDescription",  "CapsSwitch - Lightweight Portable Keyboard Layout Switcher"
-            VALUE "FileVersion",      "1.2.0.0"
+            VALUE "FileVersion",      "1.3.0.0"
             VALUE "InternalName",     "CapsSwitch"
             VALUE "LegalCopyright",   "Copyright (c) 2026"
             VALUE "OriginalFilename", "CapsSwitch.exe"
             VALUE "ProductName",      "CapsSwitch"
-            VALUE "ProductVersion",   "1.2.0.0"
+            VALUE "ProductVersion",   "1.3.0.0"
         END
     END
     BLOCK "VarFileInfo"

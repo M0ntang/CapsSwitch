@@ -8,11 +8,10 @@ namespace UI {
 
 constexpr UINT_PTR TIMER_MENU_ANIM = 1;
 
-constexpr float MENU_PAD_X = 4.0f;
-constexpr float MENU_PAD_Y = 4.0f;
-constexpr float ITEM_HEIGHT = 32.0f;
-constexpr float SEPARATOR_HEIGHT = 9.0f;
-constexpr float HEADER_HEIGHT = 44.0f;
+constexpr float MENU_PAD_X = 0.0f;
+constexpr float MENU_PAD_Y = 0.0f;
+constexpr float ITEM_HEIGHT = 36.0f;
+constexpr float SEPARATOR_HEIGHT = 7.0f;
 constexpr float MAX_LIST_VIEW_HEIGHT = 320.0f;
 
 FluentMenu& FluentMenu::Instance() {
@@ -29,7 +28,7 @@ void FluentMenu::EnsureFormats() {
     if (!gfx.EnsureInitialized()) return;
 
     if (!fmtItem_) {
-        fmtItem_ = gfx.CreateTextFormat(13.0f, DWRITE_FONT_WEIGHT_NORMAL, false,
+        fmtItem_ = gfx.CreateTextFormat(13.5f, DWRITE_FONT_WEIGHT_NORMAL, false,
             DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
         if (fmtItem_) {
             fmtItem_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
@@ -37,25 +36,10 @@ void FluentMenu::EnsureFormats() {
             fmtItem_->SetTrimming(&trim, nullptr);
         }
     }
-    if (!fmtTitle_) {
-        fmtTitle_ = gfx.CreateTextFormat(13.0f, DWRITE_FONT_WEIGHT_SEMI_BOLD, false,
-            DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-    }
-    if (!fmtSub_) {
-        fmtSub_ = gfx.CreateTextFormat(11.0f, DWRITE_FONT_WEIGHT_NORMAL, false,
-            DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-    }
-    if (!fmtBadge_) {
-        fmtBadge_ = gfx.CreateTextFormat(10.5f, DWRITE_FONT_WEIGHT_BOLD, false,
-            DWRITE_TEXT_ALIGNMENT_CENTER, DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-    }
 }
 
 void FluentMenu::ReleaseFormats() {
-    if (fmtItem_)  { fmtItem_->Release();  fmtItem_ = nullptr; }
-    if (fmtTitle_) { fmtTitle_->Release(); fmtTitle_ = nullptr; }
-    if (fmtSub_)   { fmtSub_->Release();   fmtSub_ = nullptr; }
-    if (fmtBadge_) { fmtBadge_->Release(); fmtBadge_ = nullptr; }
+    if (fmtItem_) { fmtItem_->Release(); fmtItem_ = nullptr; }
 }
 
 bool FluentMenu::EnsureWindow() {
@@ -85,7 +69,7 @@ bool FluentMenu::EnsureWindow() {
         L"CapsSwitchFluentMenu",
         L"",
         WS_POPUP,
-        0, 0, 228, 160,
+        0, 0, 210, 108,
         nullptr, nullptr, hInst, this
     );
     return hWnd_ != nullptr;
@@ -94,13 +78,13 @@ bool FluentMenu::EnsureWindow() {
 void FluentMenu::Prewarm() {
     if (!EnsureWindow()) return;
     EnsureFormats();
-    darkMode_ = IsSystemDarkMode();
+    darkMode_ = IsTaskbarDarkMode();
     if (!backdropApplied_ || darkMode_ != appliedDark_) {
         hasBackdrop_ = ApplyWindowBackdrop(hWnd_, BackdropKind::Acrylic, darkMode_);
         appliedDark_ = darkMode_;
         backdropApplied_ = true;
     }
-    surface_.EnsureSize(hWnd_, 228, 160);
+    surface_.EnsureSize(hWnd_, 210, 108);
 }
 
 void FluentMenu::ComputeLayout() {
@@ -116,8 +100,7 @@ void FluentMenu::ComputeLayout() {
                 fmtItem_, 400.0f, ITEM_HEIGHT, &layout)) && layout) {
                 DWRITE_TEXT_METRICS tm = {};
                 if (SUCCEEDED(layout->GetMetrics(&tm))) {
-                    float w = tm.widthIncludingTrailingWhitespace + (item.icon != FluentIcon::None ? 32.0f : 12.0f)
-                        + (item.rightBadge.empty() ? 24.0f : 64.0f);
+                    float w = tm.widthIncludingTrailingWhitespace + (item.icon != FluentIcon::None ? 42.0f : 14.0f) + 20.0f;
                     if (w > maxLabelW) maxLabelW = w;
                 }
                 layout->Release();
@@ -125,11 +108,8 @@ void FluentMenu::ComputeLayout() {
         }
     }
 
-    float minW = header_.show ? 220.0f : 180.0f;
-    menuWidth_ = (std::clamp)(std::ceil(maxLabelW + MENU_PAD_X * 2.0f), minW, 300.0f);
-
-    headerHeight_ = header_.show ? HEADER_HEIGHT : 0.0f;
-    listTop_ = MENU_PAD_Y + headerHeight_ + (header_.show ? 5.0f : 0.0f);
+    menuWidth_ = (std::clamp)(std::ceil(maxLabelW), 184.0f, 260.0f);
+    listTop_ = MENU_PAD_Y;
 
     itemLayouts_.resize(items_.size());
     float curY = 0.0f;
@@ -151,26 +131,24 @@ void FluentMenu::Show(
     HWND owner,
     POINT anchorScreenPt,
     bool openUpward,
-    const FluentMenuHeader& header,
     const std::vector<FluentMenuItem>& items,
-    std::function<void(UINT)> onSelect
+    std::function<void(UINT)> onSelect,
+    int themeOverride,
+    bool drawItemDividers
 ) {
     if (items.empty()) return;
     if (!EnsureWindow()) return;
 
     owner_ = owner;
-    header_ = header;
     items_ = items;
     onSelect_ = std::move(onSelect);
     openUpward_ = openUpward;
+    drawItemDividers_ = drawItemDividers;
     hoveredIndex_ = -1;
     pressedIndex_ = -1;
-    hoverPillAlpha_ = 0.0f;
-    hoverPillY_ = 0.0f;
-    openProgress_ = 0.0f;
     lastTickUs_ = Platform::GetCurrentTimeMicroseconds();
 
-    darkMode_ = IsSystemDarkMode();
+    darkMode_ = (themeOverride >= 0) ? (themeOverride != 0) : IsTaskbarDarkMode();
     if (!backdropApplied_ || darkMode_ != appliedDark_) {
         hasBackdrop_ = ApplyWindowBackdrop(hWnd_, BackdropKind::Acrylic, darkMode_);
         appliedDark_ = darkMode_;
@@ -209,7 +187,6 @@ void FluentMenu::Show(
     SetForegroundWindow(hWnd_);
     SetFocus(hWnd_);
 
-    StartAnimTimer();
     RenderNow();
 }
 
@@ -312,11 +289,6 @@ void FluentMenu::ConfirmIndex(int idx) {
 void FluentMenu::TickAnimations(float dt) {
     bool needMore = false;
 
-    if (openProgress_ < 1.0f) {
-        openProgress_ = (std::min)(1.0f, openProgress_ + dt / 0.085f);
-        if (openProgress_ < 1.0f) needMore = true;
-    }
-
     float maxScroll = (std::max)(0.0f, totalContentHeight_ - listViewHeight_);
     scrollTarget_ = (std::clamp)(scrollTarget_, 0.0f, maxScroll);
     if (std::fabs(scrollY_ - scrollTarget_) > 0.1f) {
@@ -324,22 +296,6 @@ void FluentMenu::TickAnimations(float dt) {
         needMore = true;
     } else {
         scrollY_ = scrollTarget_;
-    }
-
-    if (hoveredIndex_ >= 0 && static_cast<size_t>(hoveredIndex_) < itemLayouts_.size()) {
-        float targetY = listTop_ + itemLayouts_[hoveredIndex_].y - scrollY_;
-        if (hoverPillAlpha_ < 0.02f) {
-            hoverPillY_ = targetY;
-        } else {
-            hoverPillY_ = ExpDecay(hoverPillY_, targetY, 42.0f, dt);
-        }
-        hoverPillAlpha_ = ExpDecay(hoverPillAlpha_, 1.0f, 38.0f, dt);
-        if (std::fabs(hoverPillY_ - targetY) > 0.1f || std::fabs(hoverPillAlpha_ - 1.0f) > 0.01f) {
-            needMore = true;
-        }
-    } else {
-        hoverPillAlpha_ = ExpDecay(hoverPillAlpha_, 0.0f, 38.0f, dt);
-        if (hoverPillAlpha_ > 0.01f) needMore = true;
     }
 
     if (!needMore) {
@@ -366,90 +322,23 @@ void FluentMenu::RenderNow(HDC fallbackDstDC) {
 
     if (hasBackdrop_) {
         rt->Clear(D2D1::ColorF(0, 0, 0, 0));
-        if (brush) {
-            D2D1_COLOR_F wash = darkMode_ ? Rgba(30, 32, 38, 0.34f) : Rgba(255, 255, 255, 0.45f);
-            brush->SetColor(wash);
-            rt->FillRectangle(D2D1::RectF(0, 0, menuWidth_, menuHeight_), brush);
-        }
     } else {
         rt->Clear(pal.menuFallbackBg);
-    }
-
-    float openEase = EaseOutQuint(openProgress_);
-    float slideOffset = (1.0f - openEase) * (openUpward_ ? 4.0f : -4.0f);
-    float contentAlpha = openEase;
-
-    rt->SetTransform(D2D1::Matrix3x2F::Translation(0.0f, slideOffset) * D2D1::Matrix3x2F::Scale(scale, scale));
-
-    auto setCol = [&](const D2D1_COLOR_F& col) -> bool {
-        if (!brush) return false;
-        brush->SetColor(WithAlpha(col, col.a * contentAlpha));
-        return true;
-    };
-
-    if (setCol(pal.borderStrong)) {
-        rt->DrawRoundedRectangle(
-            D2D1::RoundedRect(D2D1::RectF(0.5f, 0.5f, menuWidth_ - 0.5f, menuHeight_ - 0.5f), 8.0f, 8.0f),
-            brush, 1.0f
-        );
-    }
-
-    if (header_.show) {
-        D2D1_RECT_F rcHdr = D2D1::RectF(MENU_PAD_X, MENU_PAD_Y, menuWidth_ - MENU_PAD_X, MENU_PAD_Y + headerHeight_);
-        if (setCol(pal.cardBg)) {
-            rt->FillRoundedRectangle(D2D1::RoundedRect(rcHdr, 6.0f, 6.0f), brush);
-        }
-        if (setCol(pal.borderSubtle)) {
-            rt->DrawRoundedRectangle(D2D1::RoundedRect(rcHdr, 6.0f, 6.0f), brush, 1.0f);
-        }
-
-        if (fmtTitle_ && !header_.title.empty() && setCol(pal.textPrimary)) {
-            rt->DrawText(header_.title.c_str(), static_cast<UINT32>(header_.title.size()), fmtTitle_,
-                D2D1::RectF(rcHdr.left + 10.0f, rcHdr.top + 5.0f, rcHdr.right - 52.0f, rcHdr.top + 22.0f), brush);
-        }
-        if (fmtSub_ && !header_.statusText.empty()) {
-            float dotX = rcHdr.left + 14.0f;
-            float dotY = rcHdr.top + 31.5f;
-            if (setCol(header_.statusColor)) {
-                rt->FillEllipse(D2D1::Ellipse(D2D1::Point2F(dotX, dotY), 3.0f, 3.0f), brush);
-            }
-            if (setCol(pal.textSecondary)) {
-                rt->DrawText(header_.statusText.c_str(), static_cast<UINT32>(header_.statusText.size()), fmtSub_,
-                    D2D1::RectF(rcHdr.left + 22.0f, rcHdr.top + 23.0f, rcHdr.right - 52.0f, rcHdr.top + 40.0f), brush);
-            }
-        }
-        if (fmtBadge_ && !header_.langBadge.empty()) {
-            D2D1_RECT_F rcLang = D2D1::RectF(rcHdr.right - 42.0f, rcHdr.top + 11.0f, rcHdr.right - 10.0f, rcHdr.top + 33.0f);
-            if (setCol(header_.langColor)) {
-                rt->FillRoundedRectangle(D2D1::RoundedRect(rcLang, 5.5f, 5.5f), brush);
-            }
-            if (setCol(Rgba(255, 255, 255, 1.0f))) {
-                rt->DrawText(header_.langBadge.c_str(), static_cast<UINT32>(header_.langBadge.size()), fmtBadge_, rcLang, brush);
-            }
-        }
-
-        float divY = MENU_PAD_Y + headerHeight_ + 2.5f;
-        if (setCol(pal.divider)) {
-            rt->DrawLine(D2D1::Point2F(MENU_PAD_X + 4.0f, divY), D2D1::Point2F(menuWidth_ - MENU_PAD_X - 4.0f, divY), brush, 1.0f);
+        if (brush) {
+            brush->SetColor(pal.borderStrong);
+            rt->DrawRoundedRectangle(
+                D2D1::RoundedRect(D2D1::RectF(0.5f, 0.5f, menuWidth_ - 0.5f, menuHeight_ - 0.5f), 8.0f, 8.0f),
+                brush, 1.0f
+            );
         }
     }
 
     D2D1_RECT_F clipRc = D2D1::RectF(0.0f, listTop_, menuWidth_, listTop_ + listViewHeight_);
     rt->PushAxisAlignedClip(clipRc, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
 
-    if (hoverPillAlpha_ > 0.01f && hoveredIndex_ >= 0 && static_cast<size_t>(hoveredIndex_) < items_.size()) {
-        bool isDestr = items_[hoveredIndex_].isDestructive;
-        D2D1_COLOR_F pillCol = isDestr
-            ? WithAlpha(pal.dangerSoft, pal.dangerSoft.a * hoverPillAlpha_ * 1.4f)
-            : WithAlpha(pal.navItemSelected, (darkMode_ ? 0.07f : 0.05f) * hoverPillAlpha_);
-        if (pressedIndex_ == hoveredIndex_) {
-            pillCol = isDestr ? WithAlpha(pal.dangerSoft, 0.25f) : pal.cardPressedBg;
-        }
-        D2D1_RECT_F rcPill = D2D1::RectF(MENU_PAD_X, hoverPillY_ + 1.0f, menuWidth_ - MENU_PAD_X, hoverPillY_ + ITEM_HEIGHT - 1.0f);
-        if (setCol(pillCol)) {
-            rt->FillRoundedRectangle(D2D1::RoundedRect(rcPill, 4.5f, 4.5f), brush);
-        }
-    }
+    D2D1_COLOR_F dividerCol = darkMode_ ? Rgba(255, 255, 255, 0.09f) : Rgba(0, 0, 0, 0.08f);
+    D2D1_COLOR_F textNormalCol = darkMode_ ? Rgba(255, 255, 255, 1.0f) : Rgba(20, 20, 20, 1.0f);
+    D2D1_COLOR_F iconNormalCol = darkMode_ ? Rgba(245, 245, 245, 0.92f) : Rgba(24, 24, 24, 0.90f);
 
     for (size_t i = 0; i < items_.size(); ++i) {
         const auto& item = items_[i];
@@ -458,44 +347,68 @@ void FluentMenu::RenderNow(HDC fallbackDstDC) {
         if (itemY + itemH < listTop_ || itemY > listTop_ + listViewHeight_) continue;
 
         if (item.isSeparator) {
-            float sepY = itemY + itemH * 0.5f;
-            if (setCol(pal.divider)) {
-                rt->DrawLine(D2D1::Point2F(MENU_PAD_X + 6.0f, sepY), D2D1::Point2F(menuWidth_ - MENU_PAD_X - 6.0f, sepY), brush, 1.0f);
+            if (brush) {
+                float sepY = itemY + itemH * 0.5f;
+                brush->SetColor(dividerCol);
+                rt->DrawLine(D2D1::Point2F(0.0f, sepY), D2D1::Point2F(menuWidth_, sepY), brush, 1.0f);
             }
             continue;
         }
 
-        bool isHovered = (static_cast<int>(i) == hoveredIndex_);
-        D2D1_COLOR_F fgCol = item.isDisabled
-            ? pal.textTertiary
-            : (item.isDestructive ? (isHovered ? pal.danger : WithAlpha(pal.danger, 0.90f)) : pal.textPrimary);
-
-        float textLeft = MENU_PAD_X + 10.0f;
-        if (item.icon != FluentIcon::None) {
-            D2D1_RECT_F iconRc = D2D1::RectF(MENU_PAD_X + 10.0f, itemY + 9.0f, MENU_PAD_X + 24.0f, itemY + 23.0f);
-            D2D1_COLOR_F iconCol = item.isDestructive ? fgCol : (isHovered ? pal.textPrimary : pal.textSecondary);
-            DrawFluentIcon(rt, item.icon, iconRc, WithAlpha(iconCol, iconCol.a * contentAlpha), 1.4f, brush);
-            textLeft = MENU_PAD_X + 32.0f;
+        if (drawItemDividers_ && i > 0 && !items_[i - 1].isSeparator && brush) {
+            brush->SetColor(dividerCol);
+            rt->DrawLine(D2D1::Point2F(0.0f, itemY + 0.5f), D2D1::Point2F(menuWidth_, itemY + 0.5f), brush, 1.0f);
         }
 
-        float textRight = menuWidth_ - MENU_PAD_X - 10.0f;
-        if (fmtItem_ && !item.label.empty() && setCol(fgCol)) {
+        bool isHovered = (static_cast<int>(i) == hoveredIndex_);
+        bool isPressed = (static_cast<int>(i) == pressedIndex_);
+        if ((isHovered || isPressed) && brush) {
+            D2D1_COLOR_F hlCol;
+            if (item.isDestructive) {
+                hlCol = WithAlpha(pal.dangerSoft, isPressed ? 0.22f : 0.14f);
+            } else if (darkMode_) {
+                hlCol = Rgba(255, 255, 255, isPressed ? 0.105f : 0.075f);
+            } else {
+                hlCol = Rgba(0, 0, 0, isPressed ? 0.085f : 0.055f);
+            }
+            D2D1_RECT_F rcHl = D2D1::RectF(4.0f, itemY + 3.0f, menuWidth_ - 4.0f, itemY + itemH - 3.0f);
+            brush->SetColor(hlCol);
+            rt->FillRoundedRectangle(D2D1::RoundedRect(rcHl, 5.0f, 5.0f), brush);
+        }
+
+        D2D1_COLOR_F fgCol = item.isDisabled
+            ? pal.textTertiary
+            : (item.isDestructive ? (isHovered ? pal.danger : WithAlpha(pal.danger, 0.90f)) : textNormalCol);
+
+        float textLeft = 14.0f;
+        if (item.icon != FluentIcon::None) {
+            float iconTop = itemY + (itemH - 16.0f) * 0.5f;
+            D2D1_RECT_F iconRc = D2D1::RectF(14.0f, iconTop, 30.0f, iconTop + 16.0f);
+            D2D1_COLOR_F iconCol = item.isDestructive
+                ? fgCol
+                : (item.isDisabled ? pal.textTertiary : iconNormalCol);
+            DrawFluentIcon(rt, item.icon, iconRc, iconCol, 1.2f, brush);
+            textLeft = 42.0f;
+        }
+
+        float textRight = menuWidth_ - 14.0f;
+        if (fmtItem_ && !item.label.empty() && brush) {
+            brush->SetColor(fgCol);
             rt->DrawText(item.label.c_str(), static_cast<UINT32>(item.label.size()), fmtItem_,
                 D2D1::RectF(textLeft, itemY, textRight, itemY + itemH), brush);
         }
     }
 
-    if (totalContentHeight_ > listViewHeight_ + 1.0f) {
+    if (totalContentHeight_ > listViewHeight_ + 1.0f && brush) {
         float ratio = listViewHeight_ / totalContentHeight_;
         float barH = (std::max)(24.0f, listViewHeight_ * ratio);
         float maxScroll = totalContentHeight_ - listViewHeight_;
         float barY = listTop_ + (maxScroll > 0.0f ? (scrollY_ / maxScroll) * (listViewHeight_ - barH) : 0.0f);
-        if (setCol(pal.textTertiary)) {
-            rt->FillRoundedRectangle(
-                D2D1::RoundedRect(D2D1::RectF(menuWidth_ - 5.0f, barY + 2.0f, menuWidth_ - 2.0f, barY + barH - 2.0f), 1.5f, 1.5f),
-                brush
-            );
-        }
+        brush->SetColor(pal.textTertiary);
+        rt->FillRoundedRectangle(
+            D2D1::RoundedRect(D2D1::RectF(menuWidth_ - 5.0f, barY + 2.0f, menuWidth_ - 2.0f, barY + barH - 2.0f), 1.5f, 1.5f),
+            brush
+        );
     }
 
     rt->PopAxisAlignedClip();
@@ -554,7 +467,6 @@ LRESULT FluentMenu::HandleMessage(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPa
         int hit = HitTestItem(GET_X_LPARAM(lParam) / scale, GET_Y_LPARAM(lParam) / scale);
         if (hit != hoveredIndex_) {
             hoveredIndex_ = hit;
-            StartAnimTimer();
             RequestRedraw();
         }
         return 0;
@@ -564,7 +476,6 @@ LRESULT FluentMenu::HandleMessage(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPa
         if (hoveredIndex_ != -1 || pressedIndex_ != -1) {
             hoveredIndex_ = -1;
             pressedIndex_ = -1;
-            StartAnimTimer();
             RequestRedraw();
         }
         return 0;

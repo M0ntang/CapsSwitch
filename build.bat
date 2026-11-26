@@ -33,6 +33,7 @@ if %errorlevel% neq 0 (
 
 echo [2/3] Compiling CapsSwitch C++20 Sources (Release, -O3, -s, -static)...
 %CXX% -std=c++20 -O3 -s -mwindows -static ^
+    -Wl,--dynamicbase -Wl,--nxcompat -Wl,--high-entropy-va -Wl,--tsaware ^
     -I include ^
     src\main.cpp ^
     src\config\config.cpp ^

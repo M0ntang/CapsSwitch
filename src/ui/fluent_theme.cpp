@@ -94,95 +94,121 @@ FluentPalette GetFluentPalette(bool dark) {
     p.darkMode = dark;
 
     if (dark) {
-        p.shellFallbackBg    = Rgba(32, 32, 32, 1.0f);
+        p.sidebarBg          = Rgba(22, 27, 34, 1.0f);
+        p.footerBg           = Rgba(22, 27, 34, 1.0f);
+        p.shellFallbackBg    = Rgba(22, 27, 34, 1.0f);
         p.menuFallbackBg     = Rgba(44, 44, 46, 1.0f);
-        p.workspaceBg        = Rgba(39, 39, 41, 1.0f);
-        p.cardBg             = Rgba(48, 48, 51, 1.0f);
-        p.cardHoverBg        = Rgba(56, 56, 60, 1.0f);
-        p.cardPressedBg      = Rgba(42, 42, 45, 1.0f);
+        p.workspaceBg        = Rgba(15, 20, 26, 1.0f);
+        p.bannerBg           = Rgba(22, 39, 60, 1.0f);
+        p.bannerPausedBg     = Rgba(44, 34, 18, 1.0f);
+        p.bannerIconBoxBg    = Rgba(29, 49, 74, 1.0f);
+        p.cardBg             = Rgba(22, 27, 34, 1.0f);
+        p.cardHoverBg        = Rgba(30, 37, 46, 1.0f);
+        p.cardPressedBg      = Rgba(19, 24, 30, 1.0f);
+        p.rowHoverBg         = Rgba(255, 255, 255, 0.035f);
+        p.rowPressedBg       = Rgba(255, 255, 255, 0.06f);
         p.surfaceElevated    = Rgba(255, 255, 255, 0.065f);
-        p.navItemHover       = Rgba(255, 255, 255, 0.055f);
-        p.navItemSelected    = Rgba(255, 255, 255, 0.085f);
-        p.inputBg            = Rgba(255, 255, 255, 0.055f);
-        p.inputFocusBg       = Rgba(22, 22, 24, 0.90f);
-        p.borderSubtle       = Rgba(255, 255, 255, 0.075f);
-        p.borderStrong       = Rgba(255, 255, 255, 0.15f);
+        p.navSelectedBg      = Rgba(30, 58, 95, 0.55f);
+        p.navSelectedFg      = Rgba(110, 178, 255, 1.0f);
+        p.navHoverBg         = Rgba(255, 255, 255, 0.055f);
+        p.navItemHover       = p.navHoverBg;
+        p.navItemSelected    = p.navSelectedBg;
+        p.inputBg            = Rgba(22, 27, 34, 1.0f);
+        p.inputFocusBg       = Rgba(18, 23, 30, 1.0f);
+        p.borderSubtle       = Rgba(255, 255, 255, 0.085f);
+        p.borderStrong       = Rgba(255, 255, 255, 0.16f);
         p.borderTopHighlight = Rgba(255, 255, 255, 0.12f);
-        p.divider            = Rgba(255, 255, 255, 0.07f);
+        p.divider            = Rgba(255, 255, 255, 0.075f);
 
-        p.textPrimary        = Rgba(255, 255, 255, 1.0f);
-        p.textSecondary      = Rgba(255, 255, 255, 0.68f);
-        p.textTertiary       = Rgba(255, 255, 255, 0.45f);
+        p.textPrimary        = Rgba(240, 244, 248, 1.0f);
+        p.textSecondary      = Rgba(148, 163, 184, 1.0f);
+        p.textTertiary       = Rgba(100, 116, 139, 1.0f);
 
-        p.accent             = Rgba(76, 194, 255, 1.0f);
-        p.accentHover        = Rgba(96, 205, 255, 1.0f);
-        p.accentPressed      = Rgba(58, 168, 224, 1.0f);
-        p.accentText         = Rgba(0, 26, 41, 1.0f);
-        p.accentSoft         = Rgba(76, 194, 255, 0.16f);
+        p.accent             = Rgba(52, 126, 214, 1.0f);
+        p.accentHover        = Rgba(68, 142, 228, 1.0f);
+        p.accentPressed      = Rgba(40, 108, 190, 1.0f);
+        p.accentText         = Rgba(255, 255, 255, 1.0f);
+        p.accentSoft         = Rgba(52, 126, 214, 0.18f);
 
-        p.toggleOffTrack     = Rgba(255, 255, 255, 0.05f);
-        p.toggleOffBorder    = Rgba(255, 255, 255, 0.46f);
-        p.toggleOffKnob      = Rgba(255, 255, 255, 0.80f);
+        p.toggleOnTrack      = p.accent;
+        p.toggleOnHover      = p.accentHover;
+        p.toggleOnKnob       = p.accentText;
+        p.toggleOffTrack     = Rgba(255, 255, 255, 0.04f);
+        p.toggleOffBorder    = Rgba(148, 163, 184, 0.45f);
+        p.toggleOffKnob      = Rgba(148, 163, 184, 0.90f);
 
-        p.langEnFill         = Rgba(56, 189, 248, 1.0f);
-        p.langEnSoft         = Rgba(56, 189, 248, 0.16f);
+        p.langEnFill         = Rgba(96, 165, 250, 1.0f);
+        p.langEnSoft         = Rgba(59, 130, 246, 0.18f);
 
         p.langRuFill         = Rgba(251, 113, 133, 1.0f);
-        p.langRuSoft         = Rgba(251, 113, 133, 0.16f);
+        p.langRuSoft         = Rgba(244, 63, 94, 0.18f);
 
         p.statusActive       = Rgba(52, 211, 153, 1.0f);
         p.statusActiveSoft   = Rgba(52, 211, 153, 0.14f);
         p.statusPaused       = Rgba(251, 191, 36, 1.0f);
         p.statusPausedSoft   = Rgba(251, 191, 36, 0.15f);
 
-        p.danger             = Rgba(255, 107, 107, 1.0f);
-        p.dangerHoverBg      = Rgba(232, 17, 35, 0.90f);
-        p.dangerSoft         = Rgba(255, 107, 107, 0.14f);
+        p.danger             = Rgba(248, 113, 113, 1.0f);
+        p.dangerHoverBg      = Rgba(220, 38, 38, 0.90f);
+        p.dangerSoft         = Rgba(248, 113, 113, 0.14f);
     } else {
-        p.shellFallbackBg    = Rgba(243, 243, 243, 1.0f);
+        p.sidebarBg          = Rgba(243, 246, 249, 1.0f);
+        p.footerBg           = Rgba(243, 246, 249, 1.0f);
+        p.shellFallbackBg    = Rgba(243, 246, 249, 1.0f);
         p.menuFallbackBg     = Rgba(249, 249, 249, 1.0f);
-        p.workspaceBg        = Rgba(250, 250, 252, 1.0f);
+        p.workspaceBg        = Rgba(255, 255, 255, 1.0f);
+        p.bannerBg           = Rgba(231, 242, 253, 1.0f);
+        p.bannerPausedBg     = Rgba(254, 244, 226, 1.0f);
+        p.bannerIconBoxBg    = Rgba(255, 255, 255, 1.0f);
         p.cardBg             = Rgba(255, 255, 255, 1.0f);
-        p.cardHoverBg        = Rgba(246, 247, 250, 1.0f);
-        p.cardPressedBg      = Rgba(239, 241, 245, 1.0f);
+        p.cardHoverBg        = Rgba(246, 248, 251, 1.0f);
+        p.cardPressedBg      = Rgba(238, 242, 247, 1.0f);
+        p.rowHoverBg         = Rgba(243, 246, 249, 0.85f);
+        p.rowPressedBg       = Rgba(234, 239, 245, 1.0f);
         p.surfaceElevated    = Rgba(255, 255, 255, 0.82f);
-        p.navItemHover       = Rgba(0, 0, 0, 0.04f);
-        p.navItemSelected    = Rgba(0, 0, 0, 0.06f);
-        p.inputBg            = Rgba(255, 255, 255, 0.92f);
+        p.navSelectedBg      = Rgba(227, 240, 253, 1.0f);
+        p.navSelectedFg      = Rgba(24, 96, 168, 1.0f);
+        p.navHoverBg         = Rgba(15, 23, 42, 0.045f);
+        p.navItemHover       = p.navHoverBg;
+        p.navItemSelected    = p.navSelectedBg;
+        p.inputBg            = Rgba(255, 255, 255, 1.0f);
         p.inputFocusBg       = Rgba(255, 255, 255, 1.0f);
-        p.borderSubtle       = Rgba(0, 0, 0, 0.068f);
-        p.borderStrong       = Rgba(0, 0, 0, 0.15f);
+        p.borderSubtle       = Rgba(226, 232, 240, 1.0f);
+        p.borderStrong       = Rgba(203, 213, 225, 1.0f);
         p.borderTopHighlight = Rgba(0, 0, 0, 0.10f);
-        p.divider            = Rgba(0, 0, 0, 0.06f);
+        p.divider            = Rgba(230, 235, 241, 1.0f);
 
-        p.textPrimary        = Rgba(26, 26, 26, 1.0f);
-        p.textSecondary      = Rgba(0, 0, 0, 0.62f);
-        p.textTertiary       = Rgba(0, 0, 0, 0.44f);
+        p.textPrimary        = Rgba(17, 24, 39, 1.0f);
+        p.textSecondary      = Rgba(100, 116, 139, 1.0f);
+        p.textTertiary       = Rgba(148, 163, 184, 1.0f);
 
-        p.accent             = Rgba(15, 108, 189, 1.0f);
-        p.accentHover        = Rgba(17, 94, 163, 1.0f);
-        p.accentPressed      = Rgba(14, 71, 117, 1.0f);
+        p.accent             = Rgba(28, 92, 166, 1.0f);
+        p.accentHover        = Rgba(22, 77, 142, 1.0f);
+        p.accentPressed      = Rgba(17, 62, 117, 1.0f);
         p.accentText         = Rgba(255, 255, 255, 1.0f);
-        p.accentSoft         = Rgba(15, 108, 189, 0.11f);
+        p.accentSoft         = Rgba(28, 92, 166, 0.12f);
 
-        p.toggleOffTrack     = Rgba(0, 0, 0, 0.03f);
-        p.toggleOffBorder    = Rgba(0, 0, 0, 0.46f);
-        p.toggleOffKnob      = Rgba(0, 0, 0, 0.62f);
+        p.toggleOnTrack      = p.accent;
+        p.toggleOnHover      = p.accentHover;
+        p.toggleOnKnob       = p.accentText;
+        p.toggleOffTrack     = Rgba(255, 255, 255, 1.0f);
+        p.toggleOffBorder    = Rgba(148, 163, 184, 1.0f);
+        p.toggleOffKnob      = Rgba(94, 106, 122, 1.0f);
 
-        p.langEnFill         = Rgba(15, 108, 189, 1.0f);
-        p.langEnSoft         = Rgba(15, 108, 189, 0.12f);
+        p.langEnFill         = Rgba(28, 92, 166, 1.0f);
+        p.langEnSoft         = Rgba(227, 240, 253, 1.0f);
 
-        p.langRuFill         = Rgba(197, 15, 31, 1.0f);
-        p.langRuSoft         = Rgba(197, 15, 31, 0.11f);
+        p.langRuFill         = Rgba(196, 43, 59, 1.0f);
+        p.langRuSoft         = Rgba(253, 232, 235, 1.0f);
 
-        p.statusActive       = Rgba(15, 123, 82, 1.0f);
-        p.statusActiveSoft   = Rgba(16, 185, 129, 0.13f);
-        p.statusPaused       = Rgba(180, 104, 0, 1.0f);
-        p.statusPausedSoft   = Rgba(245, 158, 11, 0.15f);
+        p.statusActive       = Rgba(22, 163, 74, 1.0f);
+        p.statusActiveSoft   = Rgba(22, 163, 74, 0.12f);
+        p.statusPaused       = Rgba(217, 119, 6, 1.0f);
+        p.statusPausedSoft   = Rgba(217, 119, 6, 0.14f);
 
-        p.danger             = Rgba(196, 43, 28, 1.0f);
-        p.dangerHoverBg      = Rgba(196, 43, 28, 0.92f);
-        p.dangerSoft         = Rgba(196, 43, 28, 0.11f);
+        p.danger             = Rgba(220, 38, 38, 1.0f);
+        p.dangerHoverBg      = Rgba(220, 38, 38, 0.92f);
+        p.dangerSoft         = Rgba(220, 38, 38, 0.10f);
     }
 
     return p;
@@ -376,6 +402,30 @@ void FluentGraphics::BuildCachedGeometries() {
             sink->Release();
         }
     }
+
+    if (!moonGeo_ && SUCCEEDED(d2dFactory_->CreatePathGeometry(&moonGeo_)) && moonGeo_) {
+        ID2D1GeometrySink* sink = nullptr;
+        if (SUCCEEDED(moonGeo_->Open(&sink)) && sink) {
+            sink->BeginFigure(D2D1::Point2F(9.4f, 2.9f), D2D1_FIGURE_BEGIN_HOLLOW);
+            sink->AddArc(D2D1::ArcSegment(
+                D2D1::Point2F(12.8f, 10.2f),
+                D2D1::SizeF(5.3f, 5.3f),
+                0.0f,
+                D2D1_SWEEP_DIRECTION_COUNTER_CLOCKWISE,
+                D2D1_ARC_SIZE_LARGE
+            ));
+            sink->AddArc(D2D1::ArcSegment(
+                D2D1::Point2F(9.4f, 2.9f),
+                D2D1::SizeF(4.4f, 4.4f),
+                0.0f,
+                D2D1_SWEEP_DIRECTION_CLOCKWISE,
+                D2D1_ARC_SIZE_SMALL
+            ));
+            sink->EndFigure(D2D1_FIGURE_END_CLOSED);
+            sink->Close();
+            sink->Release();
+        }
+    }
 }
 
 void FluentGraphics::ReleaseCachedGeometries() {
@@ -383,6 +433,7 @@ void FluentGraphics::ReleaseCachedGeometries() {
     if (playGeo_)   { playGeo_->Release();   playGeo_ = nullptr; }
     if (powerGeo_)  { powerGeo_->Release();  powerGeo_ = nullptr; }
     if (folderGeo_) { folderGeo_->Release(); folderGeo_ = nullptr; }
+    if (moonGeo_)   { moonGeo_->Release();   moonGeo_ = nullptr; }
 }
 
 bool FluentGraphics::EnsureInitialized() {
@@ -1017,12 +1068,20 @@ void DrawFluentIcon(
         rt->DrawLine(pt(10.5f, 7.4f), pt(8.0f, 4.8f), brush, sw, round);
         break;
     }
+    case FluentIcon::Overview: {
+        float rad = 1.1f * s;
+        rt->DrawRoundedRectangle(D2D1::RoundedRect(r(2.5f, 2.5f, 6.8f, 6.8f), rad, rad), brush, sw, round);
+        rt->DrawRoundedRectangle(D2D1::RoundedRect(r(9.2f, 2.5f, 13.5f, 6.8f), rad, rad), brush, sw, round);
+        rt->DrawRoundedRectangle(D2D1::RoundedRect(r(2.5f, 9.2f, 6.8f, 13.5f), rad, rad), brush, sw, round);
+        rt->DrawRoundedRectangle(D2D1::RoundedRect(r(9.2f, 9.2f, 13.5f, 13.5f), rad, rad), brush, sw, round);
+        break;
+    }
     case FluentIcon::Apps: {
-        float rad = 1.2f * s;
-        rt->DrawRoundedRectangle(D2D1::RoundedRect(r(2.5f, 2.5f, 7.0f, 7.0f), rad, rad), brush, sw, round);
-        rt->DrawRoundedRectangle(D2D1::RoundedRect(r(9.0f, 2.5f, 13.5f, 7.0f), rad, rad), brush, sw, round);
-        rt->DrawRoundedRectangle(D2D1::RoundedRect(r(2.5f, 9.0f, 7.0f, 13.5f), rad, rad), brush, sw, round);
-        rt->DrawRoundedRectangle(D2D1::RoundedRect(r(9.0f, 9.0f, 13.5f, 13.5f), rad, rad), brush, sw, round);
+        float rad = 1.0f * s;
+        rt->DrawRoundedRectangle(D2D1::RoundedRect(r(2.5f, 3.5f, 6.7f, 7.7f), rad, rad), brush, sw, round);
+        rt->DrawRoundedRectangle(D2D1::RoundedRect(r(2.5f, 9.3f, 6.7f, 13.5f), rad, rad), brush, sw, round);
+        rt->DrawRoundedRectangle(D2D1::RoundedRect(r(8.3f, 9.3f, 12.5f, 13.5f), rad, rad), brush, sw, round);
+        rt->DrawRoundedRectangle(D2D1::RoundedRect(r(9.7f, 2.0f, 13.9f, 6.2f), rad, rad), brush, sw, round);
         break;
     }
     case FluentIcon::Block: {
@@ -1085,6 +1144,27 @@ void DrawFluentIcon(
     case FluentIcon::Check: {
         rt->DrawLine(pt(3.2f, 8.4f), pt(6.5f, 11.7f), brush, sw, round);
         rt->DrawLine(pt(6.5f, 11.7f), pt(12.8f, 4.6f), brush, sw, round);
+        break;
+    }
+    case FluentIcon::CheckCircle: {
+        rt->DrawEllipse(D2D1::Ellipse(pt(8.0f, 8.0f), 5.8f * s, 5.8f * s), brush, sw, round);
+        rt->DrawLine(pt(5.4f, 8.2f), pt(7.2f, 10.0f), brush, sw, round);
+        rt->DrawLine(pt(7.2f, 10.0f), pt(10.8f, 6.2f), brush, sw, round);
+        break;
+    }
+    case FluentIcon::Moon: {
+        drawCachedGeo(gfx.MoonGeometry(), false);
+        break;
+    }
+    case FluentIcon::Sun: {
+        rt->DrawEllipse(D2D1::Ellipse(pt(8.0f, 8.0f), 2.9f * s, 2.9f * s), brush, sw, round);
+        constexpr float kPi = 3.14159265f;
+        for (int i = 0; i < 8; ++i) {
+            float ang = i * (kPi / 4.0f);
+            float dx = std::cos(ang);
+            float dy = std::sin(ang);
+            rt->DrawLine(pt(8.0f + dx * 4.8f, 8.0f + dy * 4.8f), pt(8.0f + dx * 6.2f, 8.0f + dy * 6.2f), brush, sw, round);
+        }
         break;
     }
     case FluentIcon::Swap: {

@@ -97,89 +97,15 @@ HICON TrayIcon::CreateFluentBadgeIcon(int sizePx, bool isRu, bool isPaused, bool
     int iconSize = (sizePx > 0) ? sizePx : GetSystemMetrics(SM_CXSMICON);
     if (iconSize <= 0) iconSize = 16;
 
-    const wchar_t* text = isPaused ? L"||" : (isRu ? L"RU" : L"EN");
-    COLORREF bgCol = isPaused ? RGB(118, 118, 118) : (isRu ? RGB(216, 59, 1) : RGB(0, 120, 215));
-    COLORREF textCol = RGB(255, 255, 255);
-
-    HDC hdcScreen = GetDC(nullptr);
-    HDC hdcMem = CreateCompatibleDC(hdcScreen);
-    HDC hdcMask = CreateCompatibleDC(hdcScreen);
-
-    // Color bitmap
-    BITMAPINFO bi = {};
-    bi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-    bi.bmiHeader.biWidth = iconSize;
-    bi.bmiHeader.biHeight = iconSize;
-    bi.bmiHeader.biPlanes = 1;
-    bi.bmiHeader.biBitCount = 32;
-    bi.bmiHeader.biCompression = BI_RGB;
-
-    void* pBits = nullptr;
-    HBITMAP hbmColor = CreateDIBSection(hdcMem, &bi, DIB_RGB_COLORS, &pBits, nullptr, 0);
-    HBITMAP hbmMask = CreateBitmap(iconSize, iconSize, 1, 1, nullptr);
-
-    HBITMAP hOldColor = (HBITMAP)SelectObject(hdcMem, hbmColor);
-    HBITMAP hOldMask = (HBITMAP)SelectObject(hdcMask, hbmMask);
-
-    // Fill background with white for mask
-    RECT rc = { 0, 0, iconSize, iconSize };
-    HBRUSH hMaskBrush = CreateSolidBrush(RGB(255, 255, 255));
-    FillRect(hdcMask, &rc, hMaskBrush);
-    DeleteObject(hMaskBrush);
-
-    // Rounded rectangle background in color bitmap
-    HBRUSH hBgBrush = CreateSolidBrush(bgCol);
-    HBRUSH hOldBrush = (HBRUSH)SelectObject(hdcMem, hBgBrush);
-    HPEN hPen = CreatePen(PS_SOLID, 1, bgCol);
-    HPEN hOldPen = (HPEN)SelectObject(hdcMem, hPen);
-
-    RoundRect(hdcMem, 0, 0, iconSize, iconSize, 4, 4);
-
-    // Also draw clear mask rectangle
-    HBRUSH hBlackBrush = CreateSolidBrush(RGB(0, 0, 0));
-    HBRUSH hOldMaskBrush = static_cast<HBRUSH>(SelectObject(hdcMask, hBlackBrush));
-    RoundRect(hdcMask, 0, 0, iconSize, iconSize, 4, 4);
-    SelectObject(hdcMask, hOldMaskBrush);
-    DeleteObject(hBlackBrush);
-
-    // Draw text centered
-    SetBkMode(hdcMem, TRANSPARENT);
-    SetTextColor(hdcMem, textCol);
-
-    int fontHeight = -MulDiv(iconSize >= 24 ? 9 : 8, GetDeviceCaps(hdcMem, LOGPIXELSY), 72);
-    HFONT hFont = CreateFontW(
-        fontHeight, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
-        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-        CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI"
-    );
-    HFONT hOldFont = (HFONT)SelectObject(hdcMem, hFont);
-
-    DrawTextW(hdcMem, text, -1, &rc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-
-    SelectObject(hdcMem, hOldFont);
-    SelectObject(hdcMem, hOldBrush);
-    SelectObject(hdcMem, hOldPen);
-    SelectObject(hdcMem, hOldColor);
-    SelectObject(hdcMask, hOldMask);
-
-    DeleteObject(hFont);
-    DeleteObject(hBgBrush);
-    DeleteObject(hPen);
-
-    ICONINFO ii = {};
-    ii.fIcon = TRUE;
-    ii.hbmMask = hbmMask;
-    ii.hbmColor = hbmColor;
-
-    HICON hIcon = CreateIconIndirect(&ii);
-
-    DeleteObject(hbmColor);
-    DeleteObject(hbmMask);
-    DeleteDC(hdcMem);
-    DeleteDC(hdcMask);
-    ReleaseDC(nullptr, hdcScreen);
-
-    return hIcon;
+    UINT resId = isPaused ? IDI_TRAY_PAUSED : (isRu ? IDI_TRAY_RU : IDI_TRAY_EN);
+    return static_cast<HICON>(LoadImageW(
+        GetModuleHandleW(nullptr),
+        MAKEINTRESOURCEW(resId),
+        IMAGE_ICON,
+        iconSize,
+        iconSize,
+        LR_DEFAULTCOLOR
+    ));
 }
 
 HICON TrayIcon::CreateFluentAppIcon(int sizePx) {
@@ -374,14 +300,10 @@ void TrayIcon::RefreshTheme() {
 void TrayIcon::ShowContextMenu(POINT pt) {
     bool paused = Core::HookManager::Instance().IsPaused();
 
-    UI::FluentMenuHeader header;
-    header.show = false;
-
     std::vector<UI::FluentMenuItem> items = {
         { ID_TRAY_SETTINGS, L"Настройки", L"", UI::FluentIcon::Settings, false, false, false },
         { ID_TRAY_PAUSE, paused ? L"Возобновить" : L"Приостановить", L"",
           paused ? UI::FluentIcon::Play : UI::FluentIcon::Pause, false, false, false },
-        { 0, L"", L"", UI::FluentIcon::None, true, false, false },
         { ID_TRAY_EXIT, L"Выход", L"", UI::FluentIcon::Power, false, false, false }
     };
 
@@ -389,7 +311,6 @@ void TrayIcon::ShowContextMenu(POINT pt) {
         hWndOwner_,
         pt,
         true,
-        header,
         items,
         [this](UINT cmd) {
             if (cmd == ID_TRAY_SETTINGS && onSettings_) {
@@ -399,7 +320,9 @@ void TrayIcon::ShowContextMenu(POINT pt) {
             } else if (cmd == ID_TRAY_EXIT && onExit_) {
                 onExit_();
             }
-        }
+        },
+        -1,
+        true
     );
 }
 

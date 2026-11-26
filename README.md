@@ -1,6 +1,6 @@
 # CapsSwitch ⚡
 
-[![Release](https://img.shields.io/badge/Release-v1.1.0-blue.svg)](https://github.com/M0ntang/CapsSwitch/releases)
+[![Release](https://img.shields.io/badge/Release-v1.3.0-blue.svg)](https://github.com/M0ntang/CapsSwitch/releases)
 [![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011%20(x64)-0078D4.svg)](https://microsoft.com/windows)
 [![RAM](https://img.shields.io/badge/RAM-%3C%202--5%20MB-10B981.svg)]()
 [![License](https://img.shields.io/badge/License-MIT-lightgrey.svg)]()

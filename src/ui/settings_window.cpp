@@ -11,42 +11,44 @@
 
 namespace UI {
 
-constexpr float WND_LOGICAL_W = 660.0f;
-constexpr float WND_LOGICAL_H = 468.0f;
+constexpr float WND_LOGICAL_W = 680.0f;
+constexpr float WND_LOGICAL_H = 548.0f;
 
-constexpr float RAIL_W = 184.0f;
-constexpr float TOP_BAR_H = 36.0f;
-constexpr float CAPTION_BTN_W = 46.0f;
-constexpr float CAPTION_BTN_H = 34.0f;
+constexpr float SIDEBAR_W = 192.0f;
+constexpr float FOOTER_H = 42.0f;
+constexpr float FOOTER_Y = WND_LOGICAL_H - FOOTER_H;
+constexpr float TOP_DRAG_H = 32.0f;
+constexpr float CAPTION_BTN_W = 42.0f;
+constexpr float CAPTION_BTN_H = 30.0f;
 
 // Navigation rail geometry
-constexpr float NAV_X = 8.0f;
-constexpr float NAV_W = 168.0f;
-constexpr float NAV_START_Y = 48.0f;
-constexpr float NAV_ITEM_H = 36.0f;
+constexpr float NAV_X = 10.0f;
+constexpr float NAV_W = 172.0f;
+constexpr float NAV_START_Y = 52.0f;
+constexpr float NAV_ITEM_H = 38.0f;
 constexpr float NAV_GAP = 4.0f;
 
 // Workspace pane geometry
-constexpr float WORK_PAD_X = 208.0f;
-constexpr float WORK_RIGHT = 636.0f;
-constexpr float WORK_W = WORK_RIGHT - WORK_PAD_X; // 428
+constexpr float WORK_PAD_X = 218.0f;
+constexpr float WORK_RIGHT = 654.0f;
+constexpr float WORK_W = WORK_RIGHT - WORK_PAD_X; // 436
 
-constexpr float HEADER_Y = 46.0f;
-constexpr float BODY_TOP = 80.0f;
-constexpr float BODY_BOTTOM = 456.0f;
+constexpr float HEADER_Y = 32.0f;
+constexpr float BODY_TOP = 68.0f;
+constexpr float BODY_BOTTOM = FOOTER_Y - 1.0f;
 
-// General cards (clean native Windows 11 Settings style)
-constexpr float CARD_START_Y = 86.0f;
-constexpr float CARD_H = 62.0f;
-constexpr float CARD_GAP = 6.0f;
+// General section rows
+constexpr float SEC1_ROW0_Y = 172.0f;
+constexpr float SEC2_ROW0_Y = 368.0f;
+constexpr float ROW_H = 52.0f;
 
 // AppLayouts & Exclusions toolbar and list
-constexpr float TOOLBAR_Y = 86.0f;
-constexpr float TOOLBAR_H = 32.0f;
-constexpr float LIST_Y = 128.0f;
-constexpr float LIST_H = 316.0f;
-constexpr float APP_ROW_H = 42.0f;
-constexpr float EXCL_ROW_H = 42.0f;
+constexpr float TOOLBAR_Y = 78.0f;
+constexpr float TOOLBAR_H = 34.0f;
+constexpr float LIST_Y = 124.0f;
+constexpr float LIST_H = 362.0f;
+constexpr float APP_ROW_H = 44.0f;
+constexpr float EXCL_ROW_H = 44.0f;
 
 constexpr UINT_PTR TIMER_ANIM = 101;
 constexpr UINT WM_SETTINGS_STATUS_SYNC = WM_APP + 201;
@@ -64,29 +66,33 @@ D2D1_RECT_F RcBtnClose() {
     return D2D1::RectF(WND_LOGICAL_W - CAPTION_BTN_W, 0.0f, WND_LOGICAL_W, CAPTION_BTN_H);
 }
 
+D2D1_RECT_F RcThemeToggle() {
+    return D2D1::RectF(WORK_RIGHT - 32.0f, 32.0f, WORK_RIGHT, 64.0f);
+}
+
 D2D1_RECT_F RcNavItem(int idx) {
     float y = NAV_START_Y + idx * (NAV_ITEM_H + NAV_GAP);
     return D2D1::RectF(NAV_X, y, NAV_X + NAV_W, y + NAV_ITEM_H);
 }
 
-D2D1_RECT_F RcRailPauseBtn() {
-    return D2D1::RectF(NAV_X, 422.0f, NAV_X + NAV_W, 456.0f);
+D2D1_RECT_F RcFooterPauseBtn() {
+    return D2D1::RectF(WND_LOGICAL_W - 164.0f, FOOTER_Y + 6.0f, WND_LOGICAL_W - 14.0f, FOOTER_Y + 36.0f);
 }
 
 D2D1_RECT_F RcToggleRow(int idx) {
-    float y = CARD_START_Y + idx * (CARD_H + CARD_GAP);
-    return D2D1::RectF(WORK_PAD_X, y, WORK_RIGHT, y + CARD_H);
+    float y = (idx < 3) ? (SEC1_ROW0_Y + idx * ROW_H) : (SEC2_ROW0_Y + (idx - 3) * ROW_H);
+    return D2D1::RectF(WORK_PAD_X - 8.0f, y, WORK_RIGHT + 8.0f, y + ROW_H);
 }
 
-D2D1_RECT_F RcAppInput()  { return D2D1::RectF(WORK_PAD_X, TOOLBAR_Y, WORK_PAD_X + 170.0f, TOOLBAR_Y + TOOLBAR_H); }
-D2D1_RECT_F RcAppPick()   { return D2D1::RectF(WORK_PAD_X + 178.0f, TOOLBAR_Y, WORK_PAD_X + 250.0f, TOOLBAR_Y + TOOLBAR_H); }
-D2D1_RECT_F RcAppLangEn() { return D2D1::RectF(WORK_PAD_X + 258.0f, TOOLBAR_Y, WORK_PAD_X + 298.0f, TOOLBAR_Y + TOOLBAR_H); }
-D2D1_RECT_F RcAppLangRu() { return D2D1::RectF(WORK_PAD_X + 298.0f, TOOLBAR_Y, WORK_PAD_X + 338.0f, TOOLBAR_Y + TOOLBAR_H); }
-D2D1_RECT_F RcAppAdd()    { return D2D1::RectF(WORK_PAD_X + 346.0f, TOOLBAR_Y, WORK_RIGHT, TOOLBAR_Y + TOOLBAR_H); }
+D2D1_RECT_F RcAppInput()  { return D2D1::RectF(WORK_PAD_X, TOOLBAR_Y, WORK_PAD_X + 174.0f, TOOLBAR_Y + TOOLBAR_H); }
+D2D1_RECT_F RcAppPick()   { return D2D1::RectF(WORK_PAD_X + 182.0f, TOOLBAR_Y, WORK_PAD_X + 256.0f, TOOLBAR_Y + TOOLBAR_H); }
+D2D1_RECT_F RcAppLangEn() { return D2D1::RectF(WORK_PAD_X + 264.0f, TOOLBAR_Y, WORK_PAD_X + 304.0f, TOOLBAR_Y + TOOLBAR_H); }
+D2D1_RECT_F RcAppLangRu() { return D2D1::RectF(WORK_PAD_X + 304.0f, TOOLBAR_Y, WORK_PAD_X + 344.0f, TOOLBAR_Y + TOOLBAR_H); }
+D2D1_RECT_F RcAppAdd()    { return D2D1::RectF(WORK_PAD_X + 352.0f, TOOLBAR_Y, WORK_RIGHT, TOOLBAR_Y + TOOLBAR_H); }
 
-D2D1_RECT_F RcExclInput() { return D2D1::RectF(WORK_PAD_X, TOOLBAR_Y, WORK_PAD_X + 256.0f, TOOLBAR_Y + TOOLBAR_H); }
-D2D1_RECT_F RcExclPick()  { return D2D1::RectF(WORK_PAD_X + 264.0f, TOOLBAR_Y, WORK_PAD_X + 336.0f, TOOLBAR_Y + TOOLBAR_H); }
-D2D1_RECT_F RcExclAdd()   { return D2D1::RectF(WORK_PAD_X + 344.0f, TOOLBAR_Y, WORK_RIGHT, TOOLBAR_Y + TOOLBAR_H); }
+D2D1_RECT_F RcExclInput() { return D2D1::RectF(WORK_PAD_X, TOOLBAR_Y, WORK_PAD_X + 262.0f, TOOLBAR_Y + TOOLBAR_H); }
+D2D1_RECT_F RcExclPick()  { return D2D1::RectF(WORK_PAD_X + 270.0f, TOOLBAR_Y, WORK_PAD_X + 344.0f, TOOLBAR_Y + TOOLBAR_H); }
+D2D1_RECT_F RcExclAdd()   { return D2D1::RectF(WORK_PAD_X + 352.0f, TOOLBAR_Y, WORK_RIGHT, TOOLBAR_Y + TOOLBAR_H); }
 
 D2D1_RECT_F RcListBox()   { return D2D1::RectF(WORK_PAD_X, LIST_Y, WORK_RIGHT, LIST_Y + LIST_H); }
 
@@ -118,11 +124,15 @@ void SettingsWindow::EnsureFormats() {
             DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
     }
     if (!fmtNav_) {
-        fmtNav_ = gfx.CreateTextFormat(13.0f, DWRITE_FONT_WEIGHT_NORMAL, false,
+        fmtNav_ = gfx.CreateTextFormat(13.5f, DWRITE_FONT_WEIGHT_NORMAL, false,
+            DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+    }
+    if (!fmtNavSelected_) {
+        fmtNavSelected_ = gfx.CreateTextFormat(13.5f, DWRITE_FONT_WEIGHT_SEMI_BOLD, false,
             DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
     }
     if (!fmtPageTitle_) {
-        fmtPageTitle_ = gfx.CreateTextFormat(20.0f, DWRITE_FONT_WEIGHT_SEMI_BOLD, true,
+        fmtPageTitle_ = gfx.CreateTextFormat(22.0f, DWRITE_FONT_WEIGHT_SEMI_BOLD, true,
             DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
     }
     if (!fmtSubtitle_) {
@@ -130,11 +140,11 @@ void SettingsWindow::EnsureFormats() {
             DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
     }
     if (!fmtGroupLabel_) {
-        fmtGroupLabel_ = gfx.CreateTextFormat(12.0f, DWRITE_FONT_WEIGHT_SEMI_BOLD, false,
+        fmtGroupLabel_ = gfx.CreateTextFormat(13.5f, DWRITE_FONT_WEIGHT_SEMI_BOLD, false,
             DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
     }
     if (!fmtRowTitle_) {
-        fmtRowTitle_ = gfx.CreateTextFormat(13.0f, DWRITE_FONT_WEIGHT_SEMI_BOLD, false,
+        fmtRowTitle_ = gfx.CreateTextFormat(13.5f, DWRITE_FONT_WEIGHT_SEMI_BOLD, false,
             DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
     }
     if (!fmtRowSub_) {
@@ -168,9 +178,10 @@ void SettingsWindow::EnsureFormats() {
 }
 
 void SettingsWindow::ReleaseFormats() {
-    if (fmtBrand_)      { fmtBrand_->Release();      fmtBrand_ = nullptr; }
-    if (fmtNav_)        { fmtNav_->Release();        fmtNav_ = nullptr; }
-    if (fmtPageTitle_)  { fmtPageTitle_->Release();  fmtPageTitle_ = nullptr; }
+    if (fmtBrand_)       { fmtBrand_->Release();       fmtBrand_ = nullptr; }
+    if (fmtNav_)         { fmtNav_->Release();         fmtNav_ = nullptr; }
+    if (fmtNavSelected_) { fmtNavSelected_->Release(); fmtNavSelected_ = nullptr; }
+    if (fmtPageTitle_)   { fmtPageTitle_->Release();   fmtPageTitle_ = nullptr; }
     if (fmtSubtitle_)   { fmtSubtitle_->Release();   fmtSubtitle_ = nullptr; }
     if (fmtGroupLabel_) { fmtGroupLabel_->Release(); fmtGroupLabel_ = nullptr; }
     if (fmtRowTitle_)   { fmtRowTitle_->Release();   fmtRowTitle_ = nullptr; }
@@ -218,10 +229,32 @@ void SettingsWindow::RefreshSnapshot(bool snapAnimations) {
         statusPausedAnim_ = livePaused_ ? 1.0f : 0.0f;
         langChipRuAnim_ = liveIsRu_ ? 1.0f : 0.0f;
         langSelectorAnim_ = (selectedAppLayout_ == Config::AppLayout::Russian) ? 1.0f : 0.0f;
-        D2D1_RECT_F navRc = RcNavItem(static_cast<int>(activeTab_));
-        navIndicatorY_ = navRc.top + (NAV_ITEM_H - 16.0f) * 0.5f;
         pageTransition_ = 1.0f;
     }
+}
+
+bool SettingsWindow::ResolveDarkMode() const {
+    if (cfg_.theme == Config::ThemeMode::Light) return false;
+    if (cfg_.theme == Config::ThemeMode::Dark) return true;
+    return IsSystemDarkMode();
+}
+
+void SettingsWindow::ToggleTheme() {
+    bool nextDark = !darkMode_;
+    Config::ThemeMode nextMode = nextDark ? Config::ThemeMode::Dark : Config::ThemeMode::Light;
+    Config::ConfigManager::Instance().Update([nextMode](Config::AppConfig& cfg) {
+        cfg.theme = nextMode;
+    });
+    Config::ConfigManager::Instance().Save();
+    cfg_.theme = nextMode;
+    darkMode_ = nextDark;
+    if (hWnd_ && IsWindow(hWnd_)) {
+        hasBackdrop_ = ApplyWindowBackdrop(hWnd_, BackdropKind::None, darkMode_);
+        appliedDark_ = darkMode_;
+        backdropApplied_ = true;
+    }
+    TriggerSavedToast();
+    RequestRedraw();
 }
 
 bool SettingsWindow::Create() {
@@ -239,7 +272,8 @@ bool SettingsWindow::Create() {
     wc.style = CS_DBLCLKS;
     RegisterClassExW(&wc);
 
-    darkMode_ = IsSystemDarkMode();
+    cfg_ = Config::ConfigManager::Instance().GetSnapshot();
+    darkMode_ = ResolveDarkMode();
 
     DWORD exStyle = gpuAvail ? WS_EX_NOREDIRECTIONBITMAP : 0;
     DWORD style = WS_POPUP | WS_SYSMENU | WS_MINIMIZEBOX;
@@ -248,7 +282,7 @@ bool SettingsWindow::Create() {
         wc.lpszClassName,
         L"CapsSwitch — Настройки",
         style,
-        CW_USEDEFAULT, CW_USEDEFAULT, 660, 468,
+        CW_USEDEFAULT, CW_USEDEFAULT, static_cast<int>(WND_LOGICAL_W), static_cast<int>(WND_LOGICAL_H),
         nullptr, nullptr, hInst, this
     );
     if (!hWnd_) return false;
@@ -286,7 +320,8 @@ void SettingsWindow::Show() {
     }
     if (!hWnd_) return;
 
-    darkMode_ = IsSystemDarkMode();
+    RefreshSnapshot(true);
+    darkMode_ = ResolveDarkMode();
     if (!backdropApplied_ || darkMode_ != appliedDark_) {
         hasBackdrop_ = ApplyWindowBackdrop(hWnd_, BackdropKind::None, darkMode_);
         appliedDark_ = darkMode_;
@@ -434,10 +469,6 @@ void SettingsWindow::TickAnimations(float dt) {
         animTo(navHover_[i], nHov ? 1.0f : 0.0f, 38.0f);
     }
 
-    D2D1_RECT_F targetNav = RcNavItem(static_cast<int>(activeTab_));
-    float targetIndY = targetNav.top + (NAV_ITEM_H - 16.0f) * 0.5f;
-    animTo(navIndicatorY_, targetIndY, 38.0f);
-
     if (pageTransition_ < 1.0f) {
         pageTransition_ = (std::min)(1.0f, pageTransition_ + dt / 0.11f);
         if (pageTransition_ < 1.0f) needMore = true;
@@ -445,7 +476,8 @@ void SettingsWindow::TickAnimations(float dt) {
 
     animTo(captionHover_[0], hovered_.zone == HitZone::BtnMinimize ? 1.0f : 0.0f, 38.0f);
     animTo(captionHover_[1], hovered_.zone == HitZone::BtnClose ? 1.0f : 0.0f, 38.0f);
-    animTo(railPauseHover_, hovered_.zone == HitZone::RailPauseBtn ? 1.0f : 0.0f, 38.0f);
+    animTo(themeBtnHover_, hovered_.zone == HitZone::ThemeToggle ? 1.0f : 0.0f, 38.0f);
+    animTo(footerPauseHover_, hovered_.zone == HitZone::FooterPauseBtn ? 1.0f : 0.0f, 38.0f);
     animTo(statusPausedAnim_, livePaused_ ? 1.0f : 0.0f, 28.0f);
     animTo(langChipRuAnim_, liveIsRu_ ? 1.0f : 0.0f, 30.0f);
     animTo(langSelectorAnim_, selectedAppLayout_ == Config::AppLayout::Russian ? 1.0f : 0.0f, 38.0f);
@@ -514,10 +546,7 @@ void SettingsWindow::ShowAppPickerMenu(const D2D1_RECT_F& anchorDip, bool forApp
     };
     ClientToScreen(hWnd_, &pt);
 
-    FluentMenuHeader header;
-    header.show = false;
-
-    FluentMenu::Instance().Show(hWnd_, pt, false, header, items, [this, procs, forAppLayouts](UINT cmd) {
+    FluentMenu::Instance().Show(hWnd_, pt, false, items, [this, procs, forAppLayouts](UINT cmd) {
         FluentTextInput& target = forAppLayouts ? appInput_ : exclInput_;
         if (cmd == ID_PICKER_BROWSE) {
             wchar_t fileBuf[MAX_PATH] = { 0 };
@@ -551,7 +580,7 @@ void SettingsWindow::ShowAppPickerMenu(const D2D1_RECT_F& anchorDip, bool forApp
             EnsureAnimationRunning();
             RequestRedraw();
         }
-    });
+    }, darkMode_ ? 1 : 0, false);
 }
 
 void SettingsWindow::AddAppLayoutFromInput() {
@@ -821,13 +850,14 @@ bool SettingsWindow::HandleInputChar(FluentTextInput& input, wchar_t ch) {
 }
 
 SettingsWindow::HitResult SettingsWindow::HitTest(float dipX, float dipY) const {
-    if (PointInRectF(RcBtnMinimize(), dipX, dipY)) return { HitZone::BtnMinimize, -1 };
-    if (PointInRectF(RcBtnClose(), dipX, dipY))    return { HitZone::BtnClose, -1 };
+    if (PointInRectF(RcBtnMinimize(), dipX, dipY))    return { HitZone::BtnMinimize, -1 };
+    if (PointInRectF(RcBtnClose(), dipX, dipY))       return { HitZone::BtnClose, -1 };
+    if (PointInRectF(RcThemeToggle(), dipX, dipY))    return { HitZone::ThemeToggle, -1 };
 
-    if (PointInRectF(RcNavItem(0), dipX, dipY))    return { HitZone::NavGeneral, -1 };
-    if (PointInRectF(RcNavItem(1), dipX, dipY))    return { HitZone::NavAppLayouts, -1 };
-    if (PointInRectF(RcNavItem(2), dipX, dipY))    return { HitZone::NavExclusions, -1 };
-    if (PointInRectF(RcRailPauseBtn(), dipX, dipY)) return { HitZone::RailPauseBtn, -1 };
+    if (PointInRectF(RcNavItem(0), dipX, dipY))       return { HitZone::NavGeneral, -1 };
+    if (PointInRectF(RcNavItem(1), dipX, dipY))       return { HitZone::NavAppLayouts, -1 };
+    if (PointInRectF(RcNavItem(2), dipX, dipY))       return { HitZone::NavExclusions, -1 };
+    if (PointInRectF(RcFooterPauseBtn(), dipX, dipY)) return { HitZone::FooterPauseBtn, -1 };
 
     if (activeTab_ == SettingsTab::General) {
         for (int i = 0; i < 5; ++i) {
@@ -973,6 +1003,9 @@ void SettingsWindow::HandleMouseUp(float dipX, float dipY) {
         Config::ConfigManager::Instance().Save();
         Hide();
         return;
+    case HitZone::ThemeToggle:
+        ToggleTheme();
+        return;
     case HitZone::NavGeneral:
         SwitchTab(SettingsTab::General);
         return;
@@ -982,7 +1015,7 @@ void SettingsWindow::HandleMouseUp(float dipX, float dipY) {
     case HitZone::NavExclusions:
         SwitchTab(SettingsTab::Exclusions);
         return;
-    case HitZone::RailPauseBtn:
+    case HitZone::FooterPauseBtn:
         TogglePause();
         return;
     case HitZone::ToggleRow0:
@@ -1060,8 +1093,12 @@ void SettingsWindow::HandleMouseWheel(short delta, float dipX, float dipY) {
 }
 
 void SettingsWindow::DrawNavigationRail(ID2D1RenderTarget* rt, const FluentPalette& pal, ID2D1SolidColorBrush* brush) {
-    // Brand header (small approved App Logo + title)
-    D2D1_RECT_F iconBox = D2D1::RectF(14.0f, 10.0f, 32.0f, 28.0f);
+    // Cool-gray left sidebar background
+    brush->SetColor(pal.sidebarBg);
+    rt->FillRectangle(D2D1::RectF(0.0f, 0.0f, SIDEBAR_W, FOOTER_Y), brush);
+
+    // Subtle brand header
+    D2D1_RECT_F iconBox = D2D1::RectF(16.0f, 15.0f, 34.0f, 33.0f);
     brush->SetColor(Rgba(24, 34, 52, 1.0f));
     rt->FillRoundedRectangle(D2D1::RoundedRect(iconBox, 5.0f, 5.0f), brush);
     ID2D1StrokeStyle* round = FluentGraphics::Instance().RoundStrokeStyle();
@@ -1079,7 +1116,7 @@ void SettingsWindow::DrawNavigationRail(ID2D1RenderTarget* rt, const FluentPalet
 
     if (fmtBrand_) {
         brush->SetColor(pal.textPrimary);
-        rt->DrawText(L"CapsSwitch", 10, fmtBrand_, D2D1::RectF(40.0f, 9.0f, 150.0f, 29.0f), brush);
+        rt->DrawText(L"CapsSwitch", 10, fmtBrand_, D2D1::RectF(42.0f, 14.0f, SIDEBAR_W - 10.0f, 34.0f), brush);
     }
 
     // Navigation items
@@ -1089,7 +1126,7 @@ void SettingsWindow::DrawNavigationRail(ID2D1RenderTarget* rt, const FluentPalet
         int count;
     };
     const NavDef navs[3] = {
-        { FluentIcon::Settings, L"Основные", -1 },
+        { FluentIcon::Overview, L"Обзор", -1 },
         { FluentIcon::Apps, L"Приложения", static_cast<int>(cfg_.appLayouts.size()) },
         { FluentIcon::Block, L"Исключения", static_cast<int>(cfg_.exclusions.size()) }
     };
@@ -1100,70 +1137,89 @@ void SettingsWindow::DrawNavigationRail(ID2D1RenderTarget* rt, const FluentPalet
         float hov = navHover_[i];
 
         if (selected) {
-            brush->SetColor(pal.navItemSelected);
-            rt->FillRoundedRectangle(D2D1::RoundedRect(rc, 5.0f, 5.0f), brush);
+            brush->SetColor(pal.navSelectedBg);
+            rt->FillRoundedRectangle(D2D1::RoundedRect(rc, 8.0f, 8.0f), brush);
         } else if (hov > 0.01f) {
-            brush->SetColor(FadeColor(pal.navItemHover, hov));
-            rt->FillRoundedRectangle(D2D1::RoundedRect(rc, 5.0f, 5.0f), brush);
+            brush->SetColor(FadeColor(pal.navHoverBg, hov));
+            rt->FillRoundedRectangle(D2D1::RoundedRect(rc, 8.0f, 8.0f), brush);
         }
 
-        D2D1_COLOR_F iconCol = selected ? pal.textPrimary : pal.textSecondary;
+        D2D1_COLOR_F iconCol = selected ? pal.navSelectedFg : (hov > 0.1f ? pal.textPrimary : pal.textSecondary);
         DrawFluentIcon(rt, navs[i].icon,
-            D2D1::RectF(rc.left + 12.0f, rc.top + 10.5f, rc.left + 27.0f, rc.top + 25.5f),
-            iconCol, 1.45f, brush);
+            D2D1::RectF(rc.left + 12.0f, rc.top + 11.0f, rc.left + 28.0f, rc.top + 27.0f),
+            iconCol, 1.4f, brush);
 
-        if (fmtNav_) {
-            brush->SetColor(selected ? pal.textPrimary : (hov > 0.1f ? pal.textPrimary : pal.textSecondary));
-            float textRight = (navs[i].count >= 0) ? (rc.right - 28.0f) : (rc.right - 10.0f);
-            rt->DrawText(navs[i].label, static_cast<UINT32>(wcslen(navs[i].label)), fmtNav_,
-                D2D1::RectF(rc.left + 35.0f, rc.top, textRight, rc.bottom), brush);
+        IDWriteTextFormat* navFmt = selected ? (fmtNavSelected_ ? fmtNavSelected_ : fmtNav_) : fmtNav_;
+        if (navFmt) {
+            brush->SetColor(selected ? pal.navSelectedFg : pal.textPrimary);
+            float textRight = (navs[i].count > 0) ? (rc.right - 28.0f) : (rc.right - 10.0f);
+            rt->DrawText(navs[i].label, static_cast<UINT32>(wcslen(navs[i].label)), navFmt,
+                D2D1::RectF(rc.left + 38.0f, rc.top, textRight, rc.bottom), brush);
         }
 
-        if (navs[i].count >= 0 && fmtSmall_) {
+        if (navs[i].count > 0 && fmtSmall_) {
             std::wstring cntStr = std::to_wstring(navs[i].count);
-            brush->SetColor(pal.textTertiary);
+            brush->SetColor(selected ? pal.navSelectedFg : pal.textTertiary);
             rt->DrawText(cntStr.c_str(), static_cast<UINT32>(cntStr.size()), fmtSmall_,
-                D2D1::RectF(rc.right - 26.0f, rc.top, rc.right - 8.0f, rc.bottom), brush);
+                D2D1::RectF(rc.right - 28.0f, rc.top, rc.right - 10.0f, rc.bottom), brush);
         }
-    }
-
-    // Gliding WinUI 3 left vertical accent pill
-    brush->SetColor(pal.accent);
-    rt->FillRoundedRectangle(
-        D2D1::RoundedRect(D2D1::RectF(NAV_X + 1.0f, navIndicatorY_, NAV_X + 4.0f, navIndicatorY_ + 16.0f), 1.5f, 1.5f),
-        brush
-    );
-
-    // Subtle saved indicator above bottom control
-    if (toastAlpha_ > 0.01f && fmtSmall_) {
-        brush->SetColor(WithAlpha(pal.textSecondary, toastAlpha_));
-        rt->DrawText(L"Сохранено", 9, fmtSmall_, D2D1::RectF(NAV_X + 10.0f, 396.0f, NAV_X + NAV_W - 10.0f, 414.0f), brush);
-    }
-
-    // Simple quiet pause/resume row at bottom of rail
-    D2D1_RECT_F pauseRc = RcRailPauseBtn();
-    if (railPauseHover_ > 0.01f) {
-        brush->SetColor(FadeColor(pal.navItemHover, railPauseHover_));
-        rt->FillRoundedRectangle(D2D1::RoundedRect(pauseRc, 5.0f, 5.0f), brush);
-    }
-    D2D1_COLOR_F dotCol = LerpColor(pal.statusActive, pal.statusPaused, statusPausedAnim_);
-    brush->SetColor(dotCol);
-    rt->FillEllipse(D2D1::Ellipse(D2D1::Point2F(pauseRc.left + 16.0f, (pauseRc.top + pauseRc.bottom) * 0.5f), 3.5f, 3.5f), brush);
-
-    if (fmtNav_) {
-        const wchar_t* stLabel = livePaused_ ? L"Возобновить" : L"Приостановить";
-        brush->SetColor(pal.textSecondary);
-        rt->DrawText(stLabel, static_cast<UINT32>(wcslen(stLabel)), fmtNav_,
-            D2D1::RectF(pauseRc.left + 28.0f, pauseRc.top, pauseRc.right - 8.0f, pauseRc.bottom), brush);
     }
 }
 
 void SettingsWindow::DrawWorkspaceShell(ID2D1RenderTarget* rt, const FluentPalette& pal, ID2D1SolidColorBrush* brush) {
-    D2D1_RECT_F paneRc = D2D1::RectF(RAIL_W, TOP_BAR_H, WND_LOGICAL_W + 12.0f, WND_LOGICAL_H + 12.0f);
     brush->SetColor(pal.workspaceBg);
-    rt->FillRoundedRectangle(D2D1::RoundedRect(paneRc, 8.0f, 8.0f), brush);
-    brush->SetColor(pal.borderSubtle);
-    rt->DrawRoundedRectangle(D2D1::RoundedRect(paneRc, 8.0f, 8.0f), brush, 1.0f);
+    rt->FillRectangle(D2D1::RectF(SIDEBAR_W, 0.0f, WND_LOGICAL_W, FOOTER_Y), brush);
+
+    brush->SetColor(pal.divider);
+    rt->DrawLine(D2D1::Point2F(SIDEBAR_W + 0.5f, 0.0f), D2D1::Point2F(SIDEBAR_W + 0.5f, FOOTER_Y), brush, 1.0f);
+}
+
+void SettingsWindow::DrawFooterBar(ID2D1RenderTarget* rt, const FluentPalette& pal, ID2D1SolidColorBrush* brush) {
+    brush->SetColor(pal.footerBg);
+    rt->FillRectangle(D2D1::RectF(0.0f, FOOTER_Y, WND_LOGICAL_W, WND_LOGICAL_H), brush);
+
+    brush->SetColor(pal.divider);
+    rt->DrawLine(D2D1::Point2F(0.0f, FOOTER_Y + 0.5f), D2D1::Point2F(WND_LOGICAL_W, FOOTER_Y + 0.5f), brush, 1.0f);
+
+    // Left: status dot + concise live state + saved indicator
+    float cy = FOOTER_Y + FOOTER_H * 0.5f;
+    D2D1_COLOR_F dotCol = LerpColor(pal.statusActive, pal.statusPaused, statusPausedAnim_);
+    brush->SetColor(dotCol);
+    rt->FillEllipse(D2D1::Ellipse(D2D1::Point2F(20.0f, cy), 3.5f, 3.5f), brush);
+
+    std::wstring statusText = livePaused_
+        ? L"На паузе"
+        : (liveIsRu_ ? L"Активен · RU" : L"Активен · EN");
+    if (fmtSubtitle_) {
+        brush->SetColor(pal.textSecondary);
+        rt->DrawText(statusText.c_str(), static_cast<UINT32>(statusText.size()), fmtSubtitle_,
+            D2D1::RectF(32.0f, FOOTER_Y, 180.0f, WND_LOGICAL_H), brush);
+    }
+
+    if (toastAlpha_ > 0.01f && fmtSmall_) {
+        brush->SetColor(WithAlpha(pal.textTertiary, toastAlpha_));
+        rt->DrawText(L"· Сохранено", 11, fmtSmall_,
+            D2D1::RectF(140.0f, FOOTER_Y, 240.0f, WND_LOGICAL_H), brush);
+    }
+
+    // Right: clickable pause/resume action
+    D2D1_RECT_F pauseRc = RcFooterPauseBtn();
+    if (footerPauseHover_ > 0.01f) {
+        brush->SetColor(FadeColor(pal.navHoverBg, footerPauseHover_));
+        rt->FillRoundedRectangle(D2D1::RoundedRect(pauseRc, 6.0f, 6.0f), brush);
+    }
+
+    D2D1_COLOR_F actionCol = footerPauseHover_ > 0.1f ? pal.textPrimary : pal.textSecondary;
+    DrawFluentIcon(rt, livePaused_ ? FluentIcon::Play : FluentIcon::Power,
+        D2D1::RectF(pauseRc.left + 12.0f, cy - 7.5f, pauseRc.left + 27.0f, cy + 7.5f),
+        actionCol, 1.4f, brush);
+
+    if (fmtNav_) {
+        const wchar_t* stLabel = livePaused_ ? L"Возобновить" : L"Приостановить";
+        brush->SetColor(actionCol);
+        rt->DrawText(stLabel, static_cast<UINT32>(wcslen(stLabel)), fmtNav_,
+            D2D1::RectF(pauseRc.left + 34.0f, pauseRc.top, pauseRc.right - 10.0f, pauseRc.bottom), brush);
+    }
 }
 
 void SettingsWindow::DrawCaptionButtons(ID2D1RenderTarget* rt, const FluentPalette& pal, ID2D1SolidColorBrush* brush) {
@@ -1173,50 +1229,114 @@ void SettingsWindow::DrawCaptionButtons(ID2D1RenderTarget* rt, const FluentPalet
         rt->FillRectangle(minRc, brush);
     }
     DrawFluentIcon(rt, FluentIcon::Minimize,
-        D2D1::RectF(minRc.left + 17.0f, minRc.top + 11.0f, minRc.left + 29.0f, minRc.top + 23.0f),
-        pal.textPrimary, 1.3f, brush);
+        D2D1::RectF(minRc.left + 15.0f, minRc.top + 9.0f, minRc.left + 27.0f, minRc.top + 21.0f),
+        pal.textSecondary, 1.25f, brush);
 
     D2D1_RECT_F clsRc = RcBtnClose();
     if (captionHover_[1] > 0.01f) {
         brush->SetColor(WithAlpha(pal.dangerHoverBg, captionHover_[1]));
         rt->FillRectangle(clsRc, brush);
     }
-    D2D1_COLOR_F clsFg = LerpColor(pal.textPrimary, Rgba(255, 255, 255, 1.0f), captionHover_[1]);
+    D2D1_COLOR_F clsFg = LerpColor(pal.textSecondary, Rgba(255, 255, 255, 1.0f), captionHover_[1]);
     DrawFluentIcon(rt, FluentIcon::Close,
-        D2D1::RectF(clsRc.left + 17.0f, clsRc.top + 11.0f, clsRc.left + 29.0f, clsRc.top + 23.0f),
-        clsFg, 1.3f, brush);
+        D2D1::RectF(clsRc.left + 15.0f, clsRc.top + 9.0f, clsRc.left + 27.0f, clsRc.top + 21.0f),
+        clsFg, 1.25f, brush);
 }
 
 void SettingsWindow::DrawPageHeader(ID2D1RenderTarget* rt, const FluentPalette& pal, ID2D1SolidColorBrush* brush, float offsetY, float alpha) {
-    const wchar_t* title = L"Основные";
+    const wchar_t* title = L"Обзор";
     if (activeTab_ == SettingsTab::AppLayouts) title = L"Приложения";
     else if (activeTab_ == SettingsTab::Exclusions) title = L"Исключения";
 
     if (fmtPageTitle_) {
         brush->SetColor(WithAlpha(pal.textPrimary, alpha));
         rt->DrawText(title, static_cast<UINT32>(wcslen(title)), fmtPageTitle_,
-            D2D1::RectF(WORK_PAD_X, HEADER_Y + offsetY * 0.4f, WORK_RIGHT, HEADER_Y + 30.0f + offsetY * 0.4f), brush);
+            D2D1::RectF(WORK_PAD_X, HEADER_Y + offsetY * 0.4f, WORK_RIGHT - 44.0f, HEADER_Y + 32.0f + offsetY * 0.4f), brush);
     }
+
+    D2D1_RECT_F themeRc = RcThemeToggle();
+    if (themeBtnHover_ > 0.01f) {
+        brush->SetColor(FadeColor(pal.navHoverBg, themeBtnHover_));
+        rt->FillRoundedRectangle(D2D1::RoundedRect(themeRc, 8.0f, 8.0f), brush);
+    }
+    D2D1_COLOR_F themeIconCol = (themeBtnHover_ > 0.1f) ? pal.textPrimary : pal.textSecondary;
+    DrawFluentIcon(rt, darkMode_ ? FluentIcon::Sun : FluentIcon::Moon,
+        D2D1::RectF(themeRc.left + 8.0f, themeRc.top + 8.0f, themeRc.right - 8.0f, themeRc.bottom - 8.0f),
+        themeIconCol, 1.4f, brush);
 }
 
 void SettingsWindow::DrawGeneralPage(ID2D1RenderTarget* rt, const FluentPalette& pal, ID2D1SolidColorBrush* brush, float offsetY, float alpha) {
+    // 1. Status Hero Banner
+    D2D1_RECT_F bannerRc = ShiftRectY(D2D1::RectF(WORK_PAD_X, 74.0f, WORK_RIGHT, 134.0f), offsetY);
+    D2D1_COLOR_F bannerBg = LerpColor(pal.bannerBg, pal.bannerPausedBg, statusPausedAnim_);
+    brush->SetColor(FadeColor(bannerBg, alpha));
+    rt->FillRoundedRectangle(D2D1::RoundedRect(bannerRc, 10.0f, 10.0f), brush);
+
+    // Left squircle icon box
+    D2D1_RECT_F sqRc = D2D1::RectF(bannerRc.left + 14.0f, bannerRc.top + 12.0f, bannerRc.left + 50.0f, bannerRc.top + 48.0f);
+    brush->SetColor(FadeColor(pal.bannerIconBoxBg, alpha));
+    rt->FillRoundedRectangle(D2D1::RoundedRect(sqRc, 8.0f, 8.0f), brush);
+    brush->SetColor(FadeColor(pal.borderSubtle, alpha));
+    rt->DrawRoundedRectangle(D2D1::RoundedRect(sqRc, 8.0f, 8.0f), brush, 1.0f);
+
+    DrawFluentIcon(rt, livePaused_ ? FluentIcon::Pause : FluentIcon::CheckCircle,
+        D2D1::RectF(sqRc.left + 10.0f, sqRc.top + 10.0f, sqRc.right - 10.0f, sqRc.bottom - 10.0f),
+        FadeColor(livePaused_ ? pal.statusPaused : pal.navSelectedFg, alpha), 1.5f, brush);
+
+    int activeCount = (cfg_.autoSwitch ? 1 : 0) + (cfg_.capsLockSwitch ? 1 : 0)
+        + (cfg_.doubleCapsConvert ? 1 : 0) + (cfg_.passwordGuard ? 1 : 0) + (cfg_.autostart ? 1 : 0);
+
+    if (fmtRowTitle_) {
+        const wchar_t* bannerTitle = livePaused_ ? L"Переключение на паузе" : L"CapsSwitch активен";
+        brush->SetColor(WithAlpha(pal.textPrimary, alpha));
+        rt->DrawText(bannerTitle, static_cast<UINT32>(wcslen(bannerTitle)), fmtRowTitle_,
+            D2D1::RectF(bannerRc.left + 64.0f, bannerRc.top + 12.0f, bannerRc.right - 64.0f, bannerRc.top + 31.0f), brush);
+    }
+    if (fmtRowSub_) {
+        std::wstring bannerSub = livePaused_
+            ? L"Нажмите «Возобновить» внизу"
+            : (L"Активно модулей: " + std::to_wstring(activeCount) + L" из 5");
+        brush->SetColor(FadeColor(pal.textSecondary, alpha));
+        rt->DrawText(bannerSub.c_str(), static_cast<UINT32>(bannerSub.size()), fmtRowSub_,
+            D2D1::RectF(bannerRc.left + 64.0f, bannerRc.top + 31.0f, bannerRc.right - 64.0f, bannerRc.top + 49.0f), brush);
+    }
+
+    D2D1_RECT_F langPillRc = D2D1::RectF(bannerRc.right - 52.0f, bannerRc.top + 18.0f, bannerRc.right - 14.0f, bannerRc.top + 42.0f);
+    brush->SetColor(FadeColor(pal.bannerIconBoxBg, alpha));
+    rt->FillRoundedRectangle(D2D1::RoundedRect(langPillRc, 6.0f, 6.0f), brush);
+    brush->SetColor(FadeColor(pal.borderSubtle, alpha));
+    rt->DrawRoundedRectangle(D2D1::RoundedRect(langPillRc, 6.0f, 6.0f), brush, 1.0f);
+    if (fmtBadge_) {
+        brush->SetColor(WithAlpha(LerpColor(pal.langEnFill, pal.langRuFill, langChipRuAnim_), alpha));
+        rt->DrawText(liveIsRu_ ? L"RU" : L"EN", 2, fmtBadge_, langPillRc, brush);
+    }
+
+    // 2. Section headings
+    if (fmtGroupLabel_) {
+        brush->SetColor(WithAlpha(pal.textPrimary, alpha));
+        rt->DrawText(L"Управление", 10, fmtGroupLabel_,
+            ShiftRectY(D2D1::RectF(WORK_PAD_X, 148.0f, WORK_RIGHT, 170.0f), offsetY), brush);
+        rt->DrawText(L"Система и защита", 16, fmtGroupLabel_,
+            ShiftRectY(D2D1::RectF(WORK_PAD_X, 344.0f, WORK_RIGHT, 366.0f), offsetY), brush);
+    }
+
+    // 3. Flat settings rows with hairline dividers
     struct RowDef {
         FluentIcon icon;
         const wchar_t* title;
         const wchar_t* subtitle;
-        bool value;
     };
     const RowDef rows[5] = {
         { FluentIcon::AutoSwitch, L"Автопереключение раскладки",
-          L"Исправление слова при ошибочной раскладке", cfg_.autoSwitch },
+          L"Исправление слова при ошибочной раскладке" },
         { FluentIcon::CapsLock, L"Переключение по Caps Lock",
-          L"Циклическая смена RU ⇄ EN без фиксации регистра", cfg_.capsLockSwitch },
+          L"Циклическая смена RU ⇄ EN без фиксации регистра" },
         { FluentIcon::DoubleCaps, L"Перевод по 2× Caps Lock",
-          L"Конвертация выделенного или последнего слова", cfg_.doubleCapsConvert },
+          L"Конвертация выделенного или последнего слова" },
         { FluentIcon::Shield, L"Защита полей паролей",
-          L"Авто-EN и отключение буфера в скрытых полях", cfg_.passwordGuard },
+          L"Авто-EN и отключение буфера в скрытых полях" },
         { FluentIcon::Rocket, L"Автозапуск с Windows",
-          L"Запуск при входе в систему", cfg_.autostart }
+          L"Запуск при входе в систему" }
     };
 
     for (int i = 0; i < 5; ++i) {
@@ -1225,62 +1345,59 @@ void SettingsWindow::DrawGeneralPage(ID2D1RenderTarget* rt, const FluentPalette&
         float prs = togglePress_[i];
         float tAnim = toggleAnim_[i];
 
-        D2D1_COLOR_F bg = LerpColor(pal.cardBg, pal.cardHoverBg, hov);
-        if (prs > 0.1f) bg = LerpColor(bg, pal.cardPressedBg, prs);
-        brush->SetColor(FadeColor(bg, alpha));
-        rt->FillRoundedRectangle(D2D1::RoundedRect(rc, 6.0f, 6.0f), brush);
+        if (hov > 0.01f || prs > 0.01f) {
+            D2D1_RECT_F hovRc = D2D1::RectF(WORK_PAD_X - 8.0f, rc.top + 2.0f, WORK_RIGHT + 8.0f, rc.bottom - 2.0f);
+            D2D1_COLOR_F hovCol = LerpColor(pal.rowHoverBg, pal.rowPressedBg, prs);
+            brush->SetColor(FadeColor(hovCol, (std::max)(hov, prs) * alpha));
+            rt->FillRoundedRectangle(D2D1::RoundedRect(hovRc, 8.0f, 8.0f), brush);
+        }
 
-        brush->SetColor(FadeColor(pal.borderSubtle, alpha));
-        rt->DrawRoundedRectangle(D2D1::RoundedRect(rc, 6.0f, 6.0f), brush, 1.0f);
+        if (i == 0 || i == 1 || i == 3) {
+            brush->SetColor(FadeColor(pal.divider, alpha));
+            rt->DrawLine(D2D1::Point2F(WORK_PAD_X, rc.bottom), D2D1::Point2F(WORK_RIGHT, rc.bottom), brush, 1.0f);
+        }
 
-        // Calm monochrome leading icon
+        D2D1_COLOR_F iconCol = LerpColor(pal.textSecondary, pal.textPrimary, hov * 0.6f);
         DrawFluentIcon(rt, rows[i].icon,
-            D2D1::RectF(rc.left + 16.0f, rc.top + 23.0f, rc.left + 32.0f, rc.top + 39.0f),
-            FadeColor(pal.textPrimary, alpha), 1.45f, brush);
+            D2D1::RectF(WORK_PAD_X + 2.0f, rc.top + 18.0f, WORK_PAD_X + 18.0f, rc.top + 34.0f),
+            FadeColor(iconCol, alpha), 1.4f, brush);
 
         if (fmtRowTitle_) {
             brush->SetColor(WithAlpha(pal.textPrimary, alpha));
             rt->DrawText(rows[i].title, static_cast<UINT32>(wcslen(rows[i].title)), fmtRowTitle_,
-                D2D1::RectF(rc.left + 46.0f, rc.top + 11.0f, rc.right - 96.0f, rc.top + 31.0f), brush);
+                D2D1::RectF(WORK_PAD_X + 32.0f, rc.top + 8.0f, WORK_RIGHT - 56.0f, rc.top + 27.0f), brush);
         }
         if (fmtRowSub_) {
             brush->SetColor(FadeColor(pal.textSecondary, alpha));
             rt->DrawText(rows[i].subtitle, static_cast<UINT32>(wcslen(rows[i].subtitle)), fmtRowSub_,
-                D2D1::RectF(rc.left + 46.0f, rc.top + 32.0f, rc.right - 96.0f, rc.top + 50.0f), brush);
+                D2D1::RectF(WORK_PAD_X + 32.0f, rc.top + 28.0f, WORK_RIGHT - 56.0f, rc.top + 45.0f), brush);
         }
 
-        // WinUI 3 ToggleSwitch
-        float pillW = 40.0f;
+        // Clean 38x20 ToggleSwitch without text label
+        float pillW = 38.0f;
         float pillH = 20.0f;
-        float pillX = rc.right - 16.0f - pillW;
+        float pillX = WORK_RIGHT - pillW;
         float pillY = (rc.top + rc.bottom - pillH) * 0.5f;
         D2D1_RECT_F pillRc = D2D1::RectF(pillX, pillY, pillX + pillW, pillY + pillH);
 
-        D2D1_COLOR_F trackCol = LerpColor(pal.toggleOffTrack, LerpColor(pal.accent, pal.accentHover, toggleHover_[i]), tAnim);
+        D2D1_COLOR_F trackCol = LerpColor(pal.toggleOffTrack, LerpColor(pal.toggleOnTrack, pal.toggleOnHover, toggleHover_[i]), tAnim);
         brush->SetColor(FadeColor(trackCol, alpha));
         rt->FillRoundedRectangle(D2D1::RoundedRect(pillRc, 10.0f, 10.0f), brush);
 
         if (tAnim < 0.99f) {
             brush->SetColor(FadeColor(pal.toggleOffBorder, (1.0f - tAnim) * alpha));
-            rt->DrawRoundedRectangle(D2D1::RoundedRect(pillRc, 10.0f, 10.0f), brush, 1.0f);
+            rt->DrawRoundedRectangle(D2D1::RoundedRect(pillRc, 10.0f, 10.0f), brush, 1.15f);
         }
 
-        float knobD = 12.0f + 1.5f * toggleHover_[i] - 1.0f * prs;
-        float knobW = knobD + 2.5f * prs;
+        float knobD = 12.0f + 1.0f * toggleHover_[i] - 0.8f * prs;
+        float knobW = knobD + 2.0f * prs;
         float knobX = Lerp(pillX + 4.0f, pillX + pillW - 4.0f - knobW, tAnim);
         float knobY = pillY + (pillH - knobD) * 0.5f;
-        brush->SetColor(FadeColor(LerpColor(pal.toggleOffKnob, pal.accentText, tAnim), alpha));
+        brush->SetColor(FadeColor(LerpColor(pal.toggleOffKnob, pal.toggleOnKnob, tAnim), alpha));
         rt->FillRoundedRectangle(
             D2D1::RoundedRect(D2D1::RectF(knobX, knobY, knobX + knobW, knobY + knobD), knobD * 0.5f, knobD * 0.5f),
             brush
         );
-
-        if (fmtSmall_) {
-            const wchar_t* stateLabel = rows[i].value ? L"Вкл" : L"Выкл";
-            brush->SetColor(FadeColor(pal.textSecondary, alpha));
-            rt->DrawText(stateLabel, static_cast<UINT32>(wcslen(stateLabel)), fmtSmall_,
-                D2D1::RectF(pillX - 38.0f, pillY, pillX - 8.0f, pillY + pillH), brush);
-        }
     }
 }
 
@@ -1298,24 +1415,14 @@ void SettingsWindow::DrawTextInput(
         bg = LerpColor(bg, pal.cardHoverBg, input.hoverAnim * 0.5f);
     }
     brush->SetColor(FadeColor(bg, alpha));
-    rt->FillRoundedRectangle(D2D1::RoundedRect(rc, 5.0f, 5.0f), brush);
+    rt->FillRoundedRectangle(D2D1::RoundedRect(rc, 7.0f, 7.0f), brush);
 
     D2D1_COLOR_F inpBorder = LerpColor(pal.borderSubtle, pal.borderStrong, (std::max)(input.focusAnim, input.hoverAnim));
-    brush->SetColor(FadeColor(inpBorder, alpha));
-    rt->DrawRoundedRectangle(D2D1::RoundedRect(rc, 5.0f, 5.0f), brush, 1.0f);
-
-    brush->SetColor(FadeColor(pal.borderStrong, alpha));
-    rt->DrawLine(D2D1::Point2F(rc.left + 4.0f, rc.bottom - 0.5f), D2D1::Point2F(rc.right - 4.0f, rc.bottom - 0.5f), brush, 1.0f);
-
     if (input.focusAnim > 0.01f) {
-        float cx = (rc.left + rc.right) * 0.5f;
-        float halfW = ((rc.right - rc.left) * 0.5f - 2.0f) * EaseOutCubic(input.focusAnim);
-        brush->SetColor(WithAlpha(pal.accent, alpha));
-        rt->FillRoundedRectangle(
-            D2D1::RoundedRect(D2D1::RectF(cx - halfW, rc.bottom - 2.0f, cx + halfW, rc.bottom), 1.0f, 1.0f),
-            brush
-        );
+        inpBorder = LerpColor(inpBorder, pal.accent, input.focusAnim);
     }
+    brush->SetColor(FadeColor(inpBorder, alpha));
+    rt->DrawRoundedRectangle(D2D1::RoundedRect(rc, 7.0f, 7.0f), brush, 1.0f);
 
     D2D1_RECT_F textClip = D2D1::RectF(rc.left + 9.0f, rc.top + 2.0f, rc.right - 9.0f, rc.bottom - 2.0f);
     rt->PushAxisAlignedClip(textClip, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
@@ -1400,9 +1507,9 @@ void SettingsWindow::DrawFluentButton(
     }
 
     brush->SetColor(FadeColor(bg, alpha));
-    rt->FillRoundedRectangle(D2D1::RoundedRect(rc, 5.0f, 5.0f), brush);
+    rt->FillRoundedRectangle(D2D1::RoundedRect(rc, 7.0f, 7.0f), brush);
     brush->SetColor(FadeColor(brd, alpha));
-    rt->DrawRoundedRectangle(D2D1::RoundedRect(rc, 5.0f, 5.0f), brush, 1.0f);
+    rt->DrawRoundedRectangle(D2D1::RoundedRect(rc, 7.0f, 7.0f), brush, 1.0f);
 
     if (icon == FluentIcon::ChevronDown) {
         float cy = (rc.top + rc.bottom) * 0.5f;
@@ -1454,19 +1561,19 @@ void SettingsWindow::DrawAppLayoutsPage(ID2D1RenderTarget* rt, const FluentPalet
     D2D1_RECT_F rcRu = ShiftRectY(RcAppLangRu(), offsetY);
     D2D1_RECT_F segRc = D2D1::RectF(rcEn.left, rcEn.top, rcRu.right, rcRu.bottom);
     brush->SetColor(FadeColor(pal.inputBg, alpha));
-    rt->FillRoundedRectangle(D2D1::RoundedRect(segRc, 5.0f, 5.0f), brush);
+    rt->FillRoundedRectangle(D2D1::RoundedRect(segRc, 7.0f, 7.0f), brush);
     brush->SetColor(FadeColor(pal.borderSubtle, alpha));
-    rt->DrawRoundedRectangle(D2D1::RoundedRect(segRc, 5.0f, 5.0f), brush, 1.0f);
+    rt->DrawRoundedRectangle(D2D1::RoundedRect(segRc, 7.0f, 7.0f), brush, 1.0f);
 
     float segW = rcEn.right - rcEn.left;
-    float pillX = Lerp(rcEn.left + 2.0f, rcRu.left + 2.0f, langSelectorAnim_);
+    float pillX = Lerp(rcEn.left + 2.5f, rcRu.left + 2.5f, langSelectorAnim_);
     D2D1_COLOR_F pillBg = LerpColor(pal.langEnSoft, pal.langRuSoft, langSelectorAnim_);
     D2D1_COLOR_F pillBrd = LerpColor(pal.langEnFill, pal.langRuFill, langSelectorAnim_);
-    D2D1_RECT_F pillRc = D2D1::RectF(pillX, segRc.top + 2.0f, pillX + segW - 4.0f, segRc.bottom - 2.0f);
+    D2D1_RECT_F pillRc = D2D1::RectF(pillX, segRc.top + 2.5f, pillX + segW - 5.0f, segRc.bottom - 2.5f);
     brush->SetColor(FadeColor(pillBg, alpha));
-    rt->FillRoundedRectangle(D2D1::RoundedRect(pillRc, 3.5f, 3.5f), brush);
+    rt->FillRoundedRectangle(D2D1::RoundedRect(pillRc, 5.0f, 5.0f), brush);
     brush->SetColor(WithAlpha(pillBrd, 0.35f * alpha));
-    rt->DrawRoundedRectangle(D2D1::RoundedRect(pillRc, 3.5f, 3.5f), brush, 1.0f);
+    rt->DrawRoundedRectangle(D2D1::RoundedRect(pillRc, 5.0f, 5.0f), brush, 1.0f);
 
     if (fmtBadge_) {
         brush->SetColor(WithAlpha(LerpColor(pal.langEnFill, pal.textSecondary, langSelectorAnim_), alpha));
@@ -1480,10 +1587,10 @@ void SettingsWindow::DrawAppLayoutsPage(ID2D1RenderTarget* rt, const FluentPalet
         pressed_.zone == HitZone::AppAddBtn, alpha);
 
     D2D1_RECT_F listRc = ShiftRectY(RcListBox(), offsetY);
-    brush->SetColor(FadeColor(pal.cardBg, alpha));
-    rt->FillRoundedRectangle(D2D1::RoundedRect(listRc, 6.0f, 6.0f), brush);
+    brush->SetColor(FadeColor(pal.workspaceBg, alpha));
+    rt->FillRoundedRectangle(D2D1::RoundedRect(listRc, 10.0f, 10.0f), brush);
     brush->SetColor(FadeColor(pal.borderSubtle, alpha));
-    rt->DrawRoundedRectangle(D2D1::RoundedRect(listRc, 6.0f, 6.0f), brush, 1.0f);
+    rt->DrawRoundedRectangle(D2D1::RoundedRect(listRc, 10.0f, 10.0f), brush, 1.0f);
 
     rt->PushAxisAlignedClip(D2D1::RectF(listRc.left + 1.0f, listRc.top + 1.0f, listRc.right - 1.0f, listRc.bottom - 1.0f),
         D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
@@ -1494,7 +1601,7 @@ void SettingsWindow::DrawAppLayoutsPage(ID2D1RenderTarget* rt, const FluentPalet
             brush->SetColor(FadeColor(pal.textSecondary, alpha));
             const wchar_t* emptyT = L"Нет правил";
             rt->DrawText(emptyT, static_cast<UINT32>(wcslen(emptyT)), fmtRowTitle_,
-                D2D1::RectF(listRc.left + 20.0f, listRc.top + 132.0f, listRc.right - 20.0f, listRc.top + 154.0f), brush);
+                D2D1::RectF(listRc.left + 20.0f, listRc.top + 150.0f, listRc.right - 20.0f, listRc.top + 172.0f), brush);
             fmtRowTitle_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
         }
         if (fmtRowSub_) {
@@ -1502,7 +1609,7 @@ void SettingsWindow::DrawAppLayoutsPage(ID2D1RenderTarget* rt, const FluentPalet
             brush->SetColor(FadeColor(pal.textTertiary, alpha));
             const wchar_t* emptyS = L"Введите имя .exe или выберите окно";
             rt->DrawText(emptyS, static_cast<UINT32>(wcslen(emptyS)), fmtRowSub_,
-                D2D1::RectF(listRc.left + 20.0f, listRc.top + 154.0f, listRc.right - 20.0f, listRc.top + 174.0f), brush);
+                D2D1::RectF(listRc.left + 20.0f, listRc.top + 174.0f, listRc.right - 20.0f, listRc.top + 194.0f), brush);
             fmtRowSub_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
         }
     } else {
@@ -1516,8 +1623,8 @@ void SettingsWindow::DrawAppLayoutsPage(ID2D1RenderTarget* rt, const FluentPalet
 
             D2D1_RECT_F rowRc = D2D1::RectF(listRc.left + 4.0f, rowY + 2.0f, listRc.right - 8.0f, rowY + APP_ROW_H - 2.0f);
             if (rowHov) {
-                brush->SetColor(FadeColor(pal.cardHoverBg, alpha));
-                rt->FillRoundedRectangle(D2D1::RoundedRect(rowRc, 4.5f, 4.5f), brush);
+                brush->SetColor(FadeColor(pal.rowHoverBg, alpha));
+                rt->FillRoundedRectangle(D2D1::RoundedRect(rowRc, 6.0f, 6.0f), brush);
             }
             if (i + 1 < cfg_.appLayouts.size()) {
                 brush->SetColor(FadeColor(pal.divider, alpha));
@@ -1531,21 +1638,21 @@ void SettingsWindow::DrawAppLayoutsPage(ID2D1RenderTarget* rt, const FluentPalet
             }
 
             bool isRu = (rule.layout == Config::AppLayout::Russian);
-            D2D1_RECT_F badgeRc = D2D1::RectF(listRc.right - 92.0f, rowY + 9.0f, listRc.right - 48.0f, rowY + APP_ROW_H - 9.0f);
+            D2D1_RECT_F badgeRc = D2D1::RectF(listRc.right - 92.0f, rowY + 10.0f, listRc.right - 48.0f, rowY + APP_ROW_H - 10.0f);
             brush->SetColor(FadeColor(isRu ? pal.langRuSoft : pal.langEnSoft, alpha));
-            rt->FillRoundedRectangle(D2D1::RoundedRect(badgeRc, 4.5f, 4.5f), brush);
+            rt->FillRoundedRectangle(D2D1::RoundedRect(badgeRc, 6.0f, 6.0f), brush);
             if (fmtBadge_) {
                 brush->SetColor(WithAlpha(isRu ? pal.langRuFill : pal.langEnFill, alpha));
                 rt->DrawText(isRu ? L"RU" : L"EN", 2, fmtBadge_, badgeRc, brush);
             }
 
-            D2D1_RECT_F delRc = D2D1::RectF(listRc.right - 40.0f, rowY + 6.0f, listRc.right - 12.0f, rowY + APP_ROW_H - 6.0f);
+            D2D1_RECT_F delRc = D2D1::RectF(listRc.right - 40.0f, rowY + 7.0f, listRc.right - 12.0f, rowY + APP_ROW_H - 7.0f);
             bool delHov = (hovered_.zone == HitZone::AppRowDelete && hovered_.index == static_cast<int>(i));
             if (delHov) {
-                brush->SetColor(FadeColor(pal.navItemHover, alpha));
-                rt->FillRoundedRectangle(D2D1::RoundedRect(delRc, 4.5f, 4.5f), brush);
+                brush->SetColor(FadeColor(pal.dangerSoft, alpha));
+                rt->FillRoundedRectangle(D2D1::RoundedRect(delRc, 6.0f, 6.0f), brush);
             }
-            D2D1_COLOR_F delCol = delHov ? pal.textPrimary : (rowHov ? pal.textSecondary : pal.textTertiary);
+            D2D1_COLOR_F delCol = delHov ? pal.danger : (rowHov ? pal.textSecondary : pal.textTertiary);
             DrawFluentIcon(rt, FluentIcon::Trash,
                 D2D1::RectF(delRc.left + 7.5f, delRc.top + 8.5f, delRc.right - 7.5f, delRc.bottom - 8.5f),
                 FadeColor(delCol, alpha), 1.4f, brush);
@@ -1569,10 +1676,10 @@ void SettingsWindow::DrawExclusionsPage(ID2D1RenderTarget* rt, const FluentPalet
         pressed_.zone == HitZone::ExclAddBtn, alpha);
 
     D2D1_RECT_F listRc = ShiftRectY(RcListBox(), offsetY);
-    brush->SetColor(FadeColor(pal.cardBg, alpha));
-    rt->FillRoundedRectangle(D2D1::RoundedRect(listRc, 6.0f, 6.0f), brush);
+    brush->SetColor(FadeColor(pal.workspaceBg, alpha));
+    rt->FillRoundedRectangle(D2D1::RoundedRect(listRc, 10.0f, 10.0f), brush);
     brush->SetColor(FadeColor(pal.borderSubtle, alpha));
-    rt->DrawRoundedRectangle(D2D1::RoundedRect(listRc, 6.0f, 6.0f), brush, 1.0f);
+    rt->DrawRoundedRectangle(D2D1::RoundedRect(listRc, 10.0f, 10.0f), brush, 1.0f);
 
     rt->PushAxisAlignedClip(D2D1::RectF(listRc.left + 1.0f, listRc.top + 1.0f, listRc.right - 1.0f, listRc.bottom - 1.0f),
         D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
@@ -1583,7 +1690,7 @@ void SettingsWindow::DrawExclusionsPage(ID2D1RenderTarget* rt, const FluentPalet
             brush->SetColor(FadeColor(pal.textSecondary, alpha));
             const wchar_t* emptyT = L"Список исключений пуст";
             rt->DrawText(emptyT, static_cast<UINT32>(wcslen(emptyT)), fmtRowTitle_,
-                D2D1::RectF(listRc.left + 20.0f, listRc.top + 140.0f, listRc.right - 20.0f, listRc.top + 162.0f), brush);
+                D2D1::RectF(listRc.left + 20.0f, listRc.top + 158.0f, listRc.right - 20.0f, listRc.top + 180.0f), brush);
             fmtRowTitle_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
         }
     } else {
@@ -1597,8 +1704,8 @@ void SettingsWindow::DrawExclusionsPage(ID2D1RenderTarget* rt, const FluentPalet
 
             D2D1_RECT_F rowRc = D2D1::RectF(listRc.left + 4.0f, rowY + 2.0f, listRc.right - 8.0f, rowY + EXCL_ROW_H - 2.0f);
             if (rowHov) {
-                brush->SetColor(FadeColor(pal.cardHoverBg, alpha));
-                rt->FillRoundedRectangle(D2D1::RoundedRect(rowRc, 4.5f, 4.5f), brush);
+                brush->SetColor(FadeColor(pal.rowHoverBg, alpha));
+                rt->FillRoundedRectangle(D2D1::RoundedRect(rowRc, 6.0f, 6.0f), brush);
             }
             if (i + 1 < cfg_.exclusions.size()) {
                 brush->SetColor(FadeColor(pal.divider, alpha));
@@ -1611,13 +1718,13 @@ void SettingsWindow::DrawExclusionsPage(ID2D1RenderTarget* rt, const FluentPalet
                     D2D1::RectF(rowRc.left + 12.0f, rowY, rowRc.right - 44.0f, rowY + EXCL_ROW_H), brush);
             }
 
-            D2D1_RECT_F delRc = D2D1::RectF(listRc.right - 40.0f, rowY + 6.0f, listRc.right - 12.0f, rowY + EXCL_ROW_H - 6.0f);
+            D2D1_RECT_F delRc = D2D1::RectF(listRc.right - 40.0f, rowY + 7.0f, listRc.right - 12.0f, rowY + EXCL_ROW_H - 7.0f);
             bool delHov = (hovered_.zone == HitZone::ExclRowDelete && hovered_.index == static_cast<int>(i));
             if (delHov) {
-                brush->SetColor(FadeColor(pal.navItemHover, alpha));
-                rt->FillRoundedRectangle(D2D1::RoundedRect(delRc, 4.5f, 4.5f), brush);
+                brush->SetColor(FadeColor(pal.dangerSoft, alpha));
+                rt->FillRoundedRectangle(D2D1::RoundedRect(delRc, 6.0f, 6.0f), brush);
             }
-            D2D1_COLOR_F delCol = delHov ? pal.textPrimary : (rowHov ? pal.textSecondary : pal.textTertiary);
+            D2D1_COLOR_F delCol = delHov ? pal.danger : (rowHov ? pal.textSecondary : pal.textTertiary);
             DrawFluentIcon(rt, FluentIcon::Trash,
                 D2D1::RectF(delRc.left + 7.5f, delRc.top + 8.5f, delRc.right - 7.5f, delRc.bottom - 8.5f),
                 FadeColor(delCol, alpha), 1.4f, brush);
@@ -1649,7 +1756,7 @@ void SettingsWindow::RenderNow(HDC fallbackDstDC) {
     if (hasBackdrop_) {
         rt->Clear(D2D1::ColorF(0, 0, 0, 0));
     } else {
-        rt->Clear(pal.shellFallbackBg);
+        rt->Clear(pal.workspaceBg);
     }
 
     if (brush) {
@@ -1663,7 +1770,7 @@ void SettingsWindow::RenderNow(HDC fallbackDstDC) {
 
         DrawPageHeader(rt, pal, brush, inOffsetY, inAlpha);
 
-        rt->PushAxisAlignedClip(D2D1::RectF(RAIL_W + 4.0f, BODY_TOP, WND_LOGICAL_W - 2.0f, BODY_BOTTOM),
+        rt->PushAxisAlignedClip(D2D1::RectF(SIDEBAR_W + 1.0f, BODY_TOP, WND_LOGICAL_W - 1.0f, BODY_BOTTOM),
             D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
 
         if (pageTransition_ < 0.99f && prevTab_ != activeTab_) {
@@ -1681,6 +1788,14 @@ void SettingsWindow::RenderNow(HDC fallbackDstDC) {
         else DrawExclusionsPage(rt, pal, brush, inOffsetY, inAlpha);
 
         rt->PopAxisAlignedClip();
+
+        DrawFooterBar(rt, pal, brush);
+
+        brush->SetColor(pal.borderSubtle);
+        rt->DrawRoundedRectangle(
+            D2D1::RoundedRect(D2D1::RectF(0.5f, 0.5f, WND_LOGICAL_W - 0.5f, WND_LOGICAL_H - 0.5f), 8.0f, 8.0f),
+            brush, 1.0f
+        );
     }
 
     HRESULT hr = surface_.EndDrawAndPresent(fallbackDstDC);
@@ -1715,8 +1830,10 @@ LRESULT SettingsWindow::HandleMessage(HWND hWnd, UINT msg, WPARAM wParam, LPARAM
         float scale = dpi_ / 96.0f;
         float dipX = pt.x / scale;
         float dipY = pt.y / scale;
-        if (dipY >= 0.0f && dipY < TOP_BAR_H) {
-            if (!PointInRectF(RcBtnMinimize(), dipX, dipY) && !PointInRectF(RcBtnClose(), dipX, dipY)) {
+        if (dipY >= 0.0f && dipY < TOP_DRAG_H) {
+            if (!PointInRectF(RcBtnMinimize(), dipX, dipY) &&
+                !PointInRectF(RcBtnClose(), dipX, dipY) &&
+                !PointInRectF(RcThemeToggle(), dipX, dipY)) {
                 return HTCAPTION;
             }
         }
@@ -1813,7 +1930,7 @@ LRESULT SettingsWindow::HandleMessage(HWND hWnd, UINT msg, WPARAM wParam, LPARAM
     }
     case WM_SETTINGCHANGE: {
         Platform::TrayIcon::Instance().RefreshTheme();
-        bool nextDark = IsSystemDarkMode();
+        bool nextDark = ResolveDarkMode();
         if (nextDark != darkMode_) {
             darkMode_ = nextDark;
             hasBackdrop_ = ApplyWindowBackdrop(hWnd, BackdropKind::None, darkMode_);

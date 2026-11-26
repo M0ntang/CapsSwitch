@@ -13,6 +13,10 @@ constexpr UINT ID_TRAY_SETTINGS = 2001;
 constexpr UINT ID_TRAY_PAUSE = 2002;
 constexpr UINT ID_TRAY_EXIT = 2003;
 
+constexpr UINT IDI_TRAY_EN = 101;
+constexpr UINT IDI_TRAY_RU = 102;
+constexpr UINT IDI_TRAY_PAUSED = 103;
+
 class TrayIcon {
 public:
     static TrayIcon& Instance();

@@ -21,6 +21,7 @@ enum class BackdropKind {
 enum class FluentIcon {
     None = 0,
     Settings,
+    Overview,
     AutoSwitch,
     CapsLock,
     DoubleCaps,
@@ -39,7 +40,10 @@ enum class FluentIcon {
     Minimize,
     ChevronDown,
     Check,
-    Swap
+    CheckCircle,
+    Swap,
+    Moon,
+    Sun
 };
 
 struct FluentPalette {
@@ -47,13 +51,23 @@ struct FluentPalette {
 
     D2D1_COLOR_F shellFallbackBg{};
     D2D1_COLOR_F menuFallbackBg{};
+    D2D1_COLOR_F sidebarBg{};
+    D2D1_COLOR_F footerBg{};
     D2D1_COLOR_F workspaceBg{};
+    D2D1_COLOR_F bannerBg{};
+    D2D1_COLOR_F bannerPausedBg{};
+    D2D1_COLOR_F bannerIconBoxBg{};
     D2D1_COLOR_F cardBg{};
     D2D1_COLOR_F cardHoverBg{};
     D2D1_COLOR_F cardPressedBg{};
+    D2D1_COLOR_F rowHoverBg{};
+    D2D1_COLOR_F rowPressedBg{};
     D2D1_COLOR_F surfaceElevated{};
     D2D1_COLOR_F navItemHover{};
     D2D1_COLOR_F navItemSelected{};
+    D2D1_COLOR_F navSelectedBg{};
+    D2D1_COLOR_F navSelectedFg{};
+    D2D1_COLOR_F navHoverBg{};
     D2D1_COLOR_F inputBg{};
     D2D1_COLOR_F inputFocusBg{};
     D2D1_COLOR_F borderSubtle{};
@@ -71,6 +85,9 @@ struct FluentPalette {
     D2D1_COLOR_F accentText{};
     D2D1_COLOR_F accentSoft{};
 
+    D2D1_COLOR_F toggleOnTrack{};
+    D2D1_COLOR_F toggleOnHover{};
+    D2D1_COLOR_F toggleOnKnob{};
     D2D1_COLOR_F toggleOffTrack{};
     D2D1_COLOR_F toggleOffBorder{};
     D2D1_COLOR_F toggleOffKnob{};
@@ -134,6 +151,7 @@ public:
     ID2D1PathGeometry* PlayGeometry() const { return playGeo_; }
     ID2D1PathGeometry* PowerGeometry() const { return powerGeo_; }
     ID2D1PathGeometry* FolderGeometry() const { return folderGeo_; }
+    ID2D1PathGeometry* MoonGeometry() const { return moonGeo_; }
 
     IDWriteTextFormat* CreateTextFormat(
         float dipSize,
@@ -167,6 +185,7 @@ private:
     ID2D1PathGeometry* playGeo_ = nullptr;
     ID2D1PathGeometry* powerGeo_ = nullptr;
     ID2D1PathGeometry* folderGeo_ = nullptr;
+    ID2D1PathGeometry* moonGeo_ = nullptr;
 
     bool initialized_ = false;
     bool gpuAttempted_ = false;

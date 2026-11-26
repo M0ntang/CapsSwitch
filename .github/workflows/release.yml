@@ -18,40 +18,110 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup MinGW / GCC
-        uses: egor-tensin/setup-mingw@v3
+      - name: Configure CMake (MSVC x64)
+        run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+
+      - name: Build CapsSwitch.exe (Release)
+        run: |
+          cmake --build build --config Release
+          Copy-Item build/Release/CapsSwitch.exe ./CapsSwitch.exe -Force
+
+      - name: Verify PE Hardening & Metadata
+        shell: pwsh
+        run: |
+          if (-not (Test-Path ./CapsSwitch.exe)) {
+            throw "CapsSwitch.exe not found after build."
+          }
+          $item = Get-Item ./CapsSwitch.exe
+          $bytes = [System.IO.File]::ReadAllBytes($item.FullName)
+          $peOff = [BitConverter]::ToInt32($bytes, 0x3C)
+          $dllChars = [BitConverter]::ToUInt16($bytes, $peOff + 24 + 70)
+
+          $hasHighEntropy = ($dllChars -band 0x0020) -ne 0
+          $hasDynamicBase = ($dllChars -band 0x0040) -ne 0
+          $hasNxCompat = ($dllChars -band 0x0100) -ne 0
+          $hasGuardCf = ($dllChars -band 0x4000) -ne 0
+
+          Write-Host "File: $($item.Name) ($($item.Length) bytes)"
+          Write-Host ("DllCharacteristics: 0x{0:X4}" -f $dllChars)
+          Write-Host "DYNAMIC_BASE (ASLR): $hasDynamicBase"
+          Write-Host "HIGH_ENTROPY_VA: $hasHighEntropy"
+          Write-Host "NX_COMPAT (DEP): $hasNxCompat"
+          Write-Host "GUARD_CF (CFG): $hasGuardCf"
+
+          if (-not ($hasDynamicBase -and $hasHighEntropy -and $hasNxCompat -and $hasGuardCf)) {
+            throw "Expected PE security flags (DYNAMIC_BASE, HIGH_ENTROPY_VA, NX_COMPAT, GUARD_CF) are missing."
+          }
+
+      # Optional Authenticode signing:
+      # Configure repository secrets CODESIGN_CERT_BASE64 (base64 PFX) and CODESIGN_CERT_PASSWORD,
+      # or integrate SignPath.io / Azure Trusted Signing to eliminate SmartScreen "Unknown Publisher".
+      - name: Sign CapsSwitch.exe (if certificate secrets configured)
+        shell: pwsh
+        env:
+          CODESIGN_CERT_BASE64: ${{ secrets.CODESIGN_CERT_BASE64 }}
+          CODESIGN_CERT_PASSWORD: ${{ secrets.CODESIGN_CERT_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:CODESIGN_CERT_BASE64) -or [string]::IsNullOrWhiteSpace($env:CODESIGN_CERT_PASSWORD)) {
+            Write-Warning "Skipping Authenticode signing: CODESIGN_CERT_BASE64 and/or CODESIGN_CERT_PASSWORD secrets are not set."
+            exit 0
+          }
+
+          $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" -ErrorAction SilentlyContinue |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1 -ExpandProperty FullName
+          if (-not $signtool) {
+            throw "signtool.exe was not found under Windows Kits 10."
+          }
+
+          $pfxPath = Join-Path $env:RUNNER_TEMP "codesign.pfx"
+          try {
+            [System.IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($env:CODESIGN_CERT_BASE64))
+            & $signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 `
+              /f $pfxPath /p $env:CODESIGN_CERT_PASSWORD `
+              /d "CapsSwitch" /du "https://github.com/M0ntang/CapsSwitch" `
+              ./CapsSwitch.exe
+            if ($LASTEXITCODE -ne 0) { throw "signtool sign failed with exit code $LASTEXITCODE" }
+
+            & $signtool verify /pa /v ./CapsSwitch.exe
+            if ($LASTEXITCODE -ne 0) { throw "signtool verify failed with exit code $LASTEXITCODE" }
+          } finally {
+            if (Test-Path $pfxPath) {
+              Remove-Item $pfxPath -Force -ErrorAction SilentlyContinue
+            }
+          }
+
+      - name: Package Release Artifacts
+        shell: pwsh
+        run: |
+          $version = if ($env:GITHUB_REF -like "refs/tags/*") { $env:GITHUB_REF_NAME } else { "dev" }
+          $zipName = "CapsSwitch-$version-win64-portable.zip"
+          Compress-Archive -Path ./CapsSwitch.exe, ./README.md -DestinationPath "./$zipName" -Force
+
+          $hashes = @("./CapsSwitch.exe", "./$zipName") | ForEach-Object {
+            $h = Get-FileHash $_ -Algorithm SHA256
+            "$($h.Hash.ToLowerInvariant())  $(Split-Path $_ -Leaf)"
+          }
+          Set-Content -Path ./SHA256SUMS.txt -Value $hashes -Encoding ascii
+          Get-Content ./SHA256SUMS.txt
+
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
         with:
-          platform: x64
-
-      - name: Build CapsSwitch.exe
-        run: |
-          windres -I res -i res/resource.rc -o res/resource.o
-          g++ -std=c++20 -O3 -s -mwindows -static `
-            -I include `
-            src/main.cpp `
-            src/config/config.cpp `
-            src/core/detector.cpp `
-            src/core/hook.cpp `
-            src/core/layout_engine.cpp `
-            src/platform/password_guard.cpp `
-            src/platform/tray.cpp `
-            src/platform/win32_utils.cpp `
-            src/ui/fluent_menu.cpp `
-            src/ui/fluent_theme.cpp `
-            src/ui/settings_window.cpp `
-            res/resource.o `
-            -o CapsSwitch.exe `
-            -luser32 -lkernel32 -lgdi32 -ld2d1 -ldwrite -ld3d11 -ldxgi -ldcomp -luxtheme -ldwmapi -lole32 -loleaut32 -luiautomationcore -lcomctl32 -lcomdlg32 -ladvapi32 -lshell32 -lpsapi -luuid
-
-      - name: Verify Executable
-        run: |
-          Get-Item CapsSwitch.exe | Format-List Length, Name
+          name: CapsSwitch-win64
+          path: |
+            CapsSwitch.exe
+            CapsSwitch-*-win64-portable.zip
+            SHA256SUMS.txt
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
         with:
-          files: CapsSwitch.exe
+          files: |
+            CapsSwitch.exe
+            CapsSwitch-*-win64-portable.zip
+            SHA256SUMS.txt
           name: CapsSwitch ${{ github.ref_name }}
           draft: false
           prerelease: false

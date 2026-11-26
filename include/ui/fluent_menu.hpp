@@ -21,15 +21,6 @@ struct FluentMenuItem {
     bool isDisabled = false;
 };
 
-struct FluentMenuHeader {
-    bool show = false;
-    std::wstring title;
-    std::wstring statusText;
-    D2D1_COLOR_F statusColor{};
-    std::wstring langBadge;
-    D2D1_COLOR_F langColor{};
-};
-
 class FluentMenu {
 public:
     static FluentMenu& Instance();
@@ -39,9 +30,10 @@ public:
         HWND owner,
         POINT anchorScreenPt,
         bool openUpward,
-        const FluentMenuHeader& header,
         const std::vector<FluentMenuItem>& items,
-        std::function<void(UINT)> onSelect
+        std::function<void(UINT)> onSelect,
+        int themeOverride = -1,
+        bool drawItemDividers = false
     );
     void Hide();
     void Destroy();
@@ -82,17 +74,15 @@ private:
     bool hasBackdrop_ = false;
     UINT dpi_ = 96;
 
-    FluentMenuHeader header_{};
     std::vector<FluentMenuItem> items_;
     std::vector<ItemLayout> itemLayouts_;
     std::function<void(UINT)> onSelect_;
 
-    float menuWidth_ = 228.0f;
-    float menuHeight_ = 160.0f;
-    float headerHeight_ = 0.0f;
-    float listTop_ = 6.0f;
-    float listViewHeight_ = 140.0f;
-    float totalContentHeight_ = 140.0f;
+    float menuWidth_ = 210.0f;
+    float menuHeight_ = 108.0f;
+    float listTop_ = 0.0f;
+    float listViewHeight_ = 108.0f;
+    float totalContentHeight_ = 108.0f;
     float scrollY_ = 0.0f;
     float scrollTarget_ = 0.0f;
 
@@ -100,18 +90,13 @@ private:
     int pressedIndex_ = -1;
     bool trackingMouse_ = false;
     bool openUpward_ = false;
+    bool drawItemDividers_ = false;
 
-    float openProgress_ = 1.0f;
-    float hoverPillY_ = 0.0f;
-    float hoverPillAlpha_ = 0.0f;
     bool animRunning_ = false;
     uint64_t lastTickUs_ = 0;
 
     GpuSurface surface_;
     IDWriteTextFormat* fmtItem_ = nullptr;
-    IDWriteTextFormat* fmtTitle_ = nullptr;
-    IDWriteTextFormat* fmtSub_ = nullptr;
-    IDWriteTextFormat* fmtBadge_ = nullptr;
 };
 
 } // namespace UI
