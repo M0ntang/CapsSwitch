@@ -1503,7 +1503,7 @@ void SettingsWindow::DrawGeneralPage(ID2D1RenderTarget* rt, const FluentPalette&
         { FluentIcon::CapsLock, L"Переключение по Caps Lock",
           L"Короткое нажатие — RU ⇄ EN; Win + Caps — Caps Lock" },
         { FluentIcon::Swap, L"Удержание Caps Lock (с Shift)",
-          L"Смена раскладки пока зажат Caps, возврат при отпускании" },
+          L"Смена раскладки при удержании; Caps + цифра = спецсимвол" },
         { FluentIcon::DoubleCaps, L"Перевод по 2× Caps Lock",
           L"Конвертация выделенного или последнего слова" },
         { FluentIcon::Shield, L"Защита полей паролей",

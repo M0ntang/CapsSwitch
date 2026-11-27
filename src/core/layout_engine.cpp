@@ -7,18 +7,18 @@
 
 namespace Core {
 
-std::atomic<bool> LayoutEngine::s_simulatingInput(false);
+std::atomic<int> LayoutEngine::s_simulatingDepth(0);
 
 namespace {
 
 struct SimulatingInputGuard {
-    explicit SimulatingInputGuard(std::atomic<bool>& flag) : flag_(flag) {
-        flag_.store(true, std::memory_order_release);
+    explicit SimulatingInputGuard(std::atomic<int>& depth) : depth_(depth) {
+        depth_.fetch_add(1, std::memory_order_release);
     }
     ~SimulatingInputGuard() {
-        flag_.store(false, std::memory_order_release);
+        depth_.fetch_sub(1, std::memory_order_release);
     }
-    std::atomic<bool>& flag_;
+    std::atomic<int>& depth_;
 };
 
 bool OpenClipboardWithRetry(int maxAttempts = 5) {
@@ -42,8 +42,8 @@ void AppendKeyReleaseIfDown(std::vector<INPUT>& inputs, WORD vk, WORD scan = 0) 
     }
 }
 
-void SendCtrlShortcut(std::atomic<bool>& simulatingFlag, WORD vkChar, WORD scanChar) {
-    SimulatingInputGuard guard(simulatingFlag);
+void SendCtrlShortcut(std::atomic<int>& simulatingDepth, WORD vkChar, WORD scanChar) {
+    SimulatingInputGuard guard(simulatingDepth);
     std::vector<INPUT> inputs;
     inputs.reserve(8);
     AppendKeyReleaseIfDown(inputs, VK_LSHIFT, 0x2A);
@@ -194,7 +194,7 @@ void LayoutEngine::NotifyTsfAndTaskbar(WORD targetLang, HKL targetHkl) {
 }
 
 bool LayoutEngine::IsSimulatingInput() {
-    return s_simulatingInput.load(std::memory_order_relaxed);
+    return s_simulatingDepth.load(std::memory_order_acquire) > 0;
 }
 
 WORD LayoutEngine::GetLayout(HWND hwnd) {
@@ -290,7 +290,7 @@ bool LayoutEngine::SwitchLayout(HWND hwnd, WORD targetLang) {
 
         if (hotkeyType == 1 || hotkeyType == 2) {
             auto simulateHotkey = [&](DWORD type) {
-                SimulatingInputGuard guard(s_simulatingInput);
+                SimulatingInputGuard guard(s_simulatingDepth);
                 std::vector<INPUT> inputs;
                 inputs.reserve(12);
 
@@ -467,7 +467,7 @@ bool LayoutEngine::SetClipboardText(const std::wstring& text) {
 std::wstring LayoutEngine::CopySelectedText(HWND /*hwnd*/) {
     DWORD seqBefore = GetClipboardSequenceNumber();
 
-    SendCtrlShortcut(s_simulatingInput, 'C', 0x2E);
+    SendCtrlShortcut(s_simulatingDepth, 'C', 0x2E);
 
     bool changed = false;
     for (int i = 0; i < 12; ++i) {
@@ -487,7 +487,7 @@ std::wstring LayoutEngine::CopySelectedText(HWND /*hwnd*/) {
 void LayoutEngine::PasteText(HWND /*hwnd*/, const std::wstring& text, const std::wstring& restoreClipboard) {
     if (!SetClipboardText(text)) return;
 
-    SendCtrlShortcut(s_simulatingInput, 'V', 0x2F);
+    SendCtrlShortcut(s_simulatingDepth, 'V', 0x2F);
 
     Sleep(45);
 
@@ -548,8 +548,55 @@ void LayoutEngine::ConvertSelectionOrLastWord() {
     }
 }
 
+wchar_t LayoutEngine::GetShiftedDigitChar(WORD vkCode, DWORD scanCode, WORD targetLang) {
+    if (vkCode < '0' || vkCode > '9') {
+        return 0;
+    }
+    if (!hklRu_ || !hklEn_) {
+        RefreshLayouts();
+    }
+
+    bool isRu = ((targetLang & 0xFF) == 0x19);
+    HKL targetHkl = isRu ? hklRu_ : hklEn_;
+    if (targetHkl) {
+        BYTE keyState[256] = { 0 };
+        keyState[VK_SHIFT] = 0x80;
+        wchar_t unicodeBuf[4] = { 0 };
+        int count = ToUnicodeEx(vkCode, scanCode, keyState, unicodeBuf, 4, 0x0004, targetHkl);
+        if (count == 1 && unicodeBuf[0] >= 32) {
+            return unicodeBuf[0];
+        }
+    }
+
+    // Fallback table for standard EN/RU top-row shifted digits (e.g. dead-key variants)
+    static constexpr wchar_t kEnShiftedDigits[10] = {
+        L')', L'!', L'@', L'#', L'$', L'%', L'^', L'&', L'*', L'('
+    };
+    static constexpr wchar_t kRuShiftedDigits[10] = {
+        L')', L'!', L'\"', L'№', L';', L'%', L':', L'?', L'*', L'('
+    };
+    int idx = static_cast<int>(vkCode - '0');
+    return isRu ? kRuShiftedDigits[idx] : kEnShiftedDigits[idx];
+}
+
+void LayoutEngine::SendUnicodeChar(wchar_t ch) {
+    if (ch < 32) return;
+    SimulatingInputGuard guard(s_simulatingDepth);
+
+    INPUT inputs[2] = {};
+    inputs[0].type = INPUT_KEYBOARD;
+    inputs[0].ki.wScan = ch;
+    inputs[0].ki.dwFlags = KEYEVENTF_UNICODE;
+
+    inputs[1].type = INPUT_KEYBOARD;
+    inputs[1].ki.wScan = ch;
+    inputs[1].ki.dwFlags = KEYEVENTF_UNICODE | KEYEVENTF_KEYUP;
+
+    SendInput(2, inputs, sizeof(INPUT));
+}
+
 void LayoutEngine::SimulateReplacement(size_t eraseCount, const std::wstring& newText) {
-    SimulatingInputGuard guard(s_simulatingInput);
+    SimulatingInputGuard guard(s_simulatingDepth);
 
     std::vector<INPUT> inputs;
     inputs.reserve(4 + eraseCount * 2 + newText.length() * 2);

@@ -43,14 +43,17 @@ void TestCapsHoldAndType() {
     CHECK(!a1.resetBuffer);
 
     // First non-Shift key while held resets Detector buffer and skips Detector
-    auto k1 = sm.OnOtherKeyDown('A', false, cfg);
+    auto k1 = sm.OnOtherKeyDown('A', false, false, false, false, false, cfg);
     CHECK(k1.skipDetectorForKey);
     CHECK(k1.resetBuffer);
+    CHECK(!k1.emitShiftedDigit);
+    CHECK(!k1.suppressKey);
 
     // Second key while held skips Detector, does not redundantly reset
-    auto k2 = sm.OnOtherKeyDown('B', false, cfg);
+    auto k2 = sm.OnOtherKeyDown('B', false, false, false, false, false, cfg);
     CHECK(k2.skipDetectorForKey);
     CHECK(!k2.resetBuffer);
+    CHECK(!k2.emitShiftedDigit);
 
     // Release Caps quickly (<200ms) -> still reverts because a key was typed while held
     auto u1 = sm.OnCapsUp(1080, false, cfg);
@@ -70,11 +73,11 @@ void TestShiftAndCapsSimultaneous() {
     auto d1 = sm.OnCapsDown(2000, false, false, false, false, false, LANG_ID_EN, cfg);
     CHECK(d1.suppressKey && d1.switchLayout && d1.targetLang == LANG_ID_RU);
 
-    auto sh = sm.OnOtherKeyDown(VK_LSHIFT, false, cfg);
+    auto sh = sm.OnOtherKeyDown(VK_LSHIFT, true, false, false, false, false, cfg);
     CHECK(sh.skipDetectorForKey);
     CHECK(!sh.resetBuffer); // Shift alone does not need to reset buffer yet
 
-    auto k = sm.OnOtherKeyDown('G', false, cfg);
+    auto k = sm.OnOtherKeyDown('G', true, false, false, false, false, cfg);
     CHECK(k.skipDetectorForKey);
     CHECK(k.resetBuffer);
 
@@ -88,13 +91,69 @@ void TestShiftAndCapsSimultaneous() {
     CHECK(d2.switchLayout && d2.targetLang == LANG_ID_EN);
     CHECK(!d2.triggerDoubleCaps);
 
-    auto k2 = sm.OnOtherKeyDown('H', false, cfg);
+    auto k2 = sm.OnOtherKeyDown('H', true, false, false, false, false, cfg);
     CHECK(k2.skipDetectorForKey && k2.resetBuffer);
 
     auto u2 = sm.OnCapsUp(3050, false, cfg);
     CHECK(u2.suppressKey);
     CHECK(u2.switchLayout && u2.targetLang == LANG_ID_RU);
     CHECK(u2.resetBuffer);
+
+    ++g_testsPassed;
+}
+
+void TestHoldCapsDigitShiftedSymbol() {
+    CapsLockStateMachine sm;
+    CapsConfig cfg{ true, true, true };
+
+    // 1. In RU layout -> hold Caps (switches to EN) -> press '2' without Shift -> emits EN shifted digit ('@')
+    auto d1 = sm.OnCapsDown(1000, false, false, false, false, false, LANG_ID_RU, cfg);
+    CHECK(d1.suppressKey && d1.switchLayout && d1.targetLang == LANG_ID_EN);
+
+    auto dig2 = sm.OnOtherKeyDown('2', false, false, false, false, false, cfg);
+    CHECK(dig2.suppressKey);
+    CHECK(dig2.emitShiftedDigit);
+    CHECK(dig2.targetLang == LANG_ID_EN);
+    CHECK(dig2.resetBuffer);
+    CHECK(dig2.skipDetectorForKey);
+
+    // Release Caps Lock first, then release '2' -> orphan KEYUP of '2' must still be suppressed
+    auto u1 = sm.OnCapsUp(1080, false, cfg);
+    CHECK(u1.suppressKey && u1.switchLayout && u1.targetLang == LANG_ID_RU);
+    CHECK(sm.ShouldSuppressKeyUp('2'));
+    CHECK(!sm.ShouldSuppressKeyUp('2')); // only once
+
+    // 2. Ctrl+2 while Caps held must NOT emit shifted digit
+    auto d2 = sm.OnCapsDown(2000, false, false, false, false, false, LANG_ID_RU, cfg);
+    CHECK(d2.suppressKey && d2.switchLayout);
+    auto ctrlDig = sm.OnOtherKeyDown('2', false, true, false, false, false, cfg);
+    CHECK(!ctrlDig.emitShiftedDigit);
+    CHECK(!ctrlDig.suppressKey);
+    CHECK(!sm.ShouldSuppressKeyUp('2'));
+    sm.OnCapsUp(2100, false, cfg);
+
+    // 3. When capsHoldSwitch is disabled, digit does NOT emit shifted symbol
+    CapsConfig noHold{ true, false, true };
+    sm.OnCapsDown(3000, false, false, false, false, false, LANG_ID_RU, noHold);
+    auto digNoHold = sm.OnOtherKeyDown('3', false, false, false, false, false, noHold);
+    CHECK(!digNoHold.emitShiftedDigit && !digNoHold.suppressKey);
+    sm.OnCapsUp(3100, false, noHold);
+
+    // 4. Verify LayoutEngine shifted digit mapping for EN and RU
+    auto& le = LayoutEngine::Instance();
+    CHECK(le.GetShiftedDigitChar('1', 0x02, LANG_ID_EN) == L'!');
+    CHECK(le.GetShiftedDigitChar('2', 0x03, LANG_ID_EN) == L'@');
+    CHECK(le.GetShiftedDigitChar('3', 0x04, LANG_ID_EN) == L'#');
+    CHECK(le.GetShiftedDigitChar('4', 0x05, LANG_ID_EN) == L'$');
+    CHECK(le.GetShiftedDigitChar('6', 0x07, LANG_ID_EN) == L'^');
+    CHECK(le.GetShiftedDigitChar('7', 0x08, LANG_ID_EN) == L'&');
+
+    CHECK(le.GetShiftedDigitChar('1', 0x02, LANG_ID_RU) == L'!');
+    CHECK(le.GetShiftedDigitChar('2', 0x03, LANG_ID_RU) == L'\"');
+    CHECK(le.GetShiftedDigitChar('3', 0x04, LANG_ID_RU) == L'№');
+    CHECK(le.GetShiftedDigitChar('4', 0x05, LANG_ID_RU) == L';');
+    CHECK(le.GetShiftedDigitChar('6', 0x07, LANG_ID_RU) == L':');
+    CHECK(le.GetShiftedDigitChar('7', 0x08, LANG_ID_RU) == L'?');
 
     ++g_testsPassed;
 }
@@ -328,6 +387,7 @@ void TestDetectorCustomDictionaryAndHeuristics() {
 int main() {
     TestCapsHoldAndType();
     TestShiftAndCapsSimultaneous();
+    TestHoldCapsDigitShiftedSymbol();
     TestHoldTimeoutAndQuickTap();
     TestDoubleCapsAutoRepeatAndWinCaps();
     TestConfigJsonRoundTripAndBackwardCompat();

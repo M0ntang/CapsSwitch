@@ -37,6 +37,8 @@ public:
     void ConvertSelectionOrLastWord();
 
     // Simulation of replacement text via SendInput
+    wchar_t GetShiftedDigitChar(WORD vkCode, DWORD scanCode, WORD targetLang);
+    void SendUnicodeChar(wchar_t ch);
     void SimulateReplacement(size_t eraseCount, const std::wstring& newText);
 
     // Clipboard helpers
@@ -56,7 +58,7 @@ private:
     LayoutEngine();
     void EnsureTsf();
 
-    static std::atomic<bool> s_simulatingInput;
+    static std::atomic<int> s_simulatingDepth;
     HKL hklRu_ = nullptr;
     HKL hklEn_ = nullptr;
     ITfInputProcessorProfiles* pTsfProfiles_ = nullptr;

@@ -265,15 +265,29 @@ LRESULT CALLBACK HookManager::LowLevelKeyboardProc(int nCode, WPARAM wParam, LPA
         }
     }
 
-    // Track keys typed while Caps Lock is held (suppress Detector buffering, keep Shift/chars intact)
+    // Track keys typed while Caps Lock is held (digits auto-emit shifted symbol of switched layout)
     if (isDown && s_instance) {
-        CapsAction otherAct = s_instance->capsState_.OnOtherKeyDown(pKbd->vkCode, isPaused, capsCfg);
+        CapsAction otherAct = s_instance->capsState_.OnOtherKeyDown(
+            pKbd->vkCode, isShift, isCtrl, isAlt, isWin, isPaused, capsCfg);
         if (otherAct.resetBuffer) {
             s_instance->PushResetEvent(true);
+        }
+        if (otherAct.emitShiftedDigit && otherAct.targetLang != 0) {
+            wchar_t ch = LayoutEngine::Instance().GetShiftedDigitChar(
+                static_cast<WORD>(pKbd->vkCode), pKbd->scanCode, otherAct.targetLang);
+            if (ch >= 32) {
+                LayoutEngine::Instance().SendUnicodeChar(ch);
+            }
+        }
+        if (otherAct.suppressKey) {
+            return 1;
         }
         if (otherAct.skipDetectorForKey) {
             return CallNextHookEx(s_hKbdHook, nCode, wParam, lParam);
         }
+    }
+    if (isUp && s_instance && s_instance->capsState_.ShouldSuppressKeyUp(pKbd->vkCode)) {
+        return 1;
     }
 
     // 3. Navigation and control keys: reset word buffer in strict queue order

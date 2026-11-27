@@ -19,6 +19,7 @@ struct CapsAction {
     bool triggerDoubleCaps = false;
     bool resetBuffer = false;
     bool skipDetectorForKey = false;
+    bool emitShiftedDigit = false;
 };
 
 class CapsLockStateMachine {
@@ -117,7 +118,15 @@ public:
         return {};
     }
 
-    CapsAction OnOtherKeyDown(DWORD vkCode, bool isPaused, const CapsConfig& cfg) {
+    CapsAction OnOtherKeyDown(
+        DWORD vkCode,
+        bool isShift,
+        bool isCtrl,
+        bool isAlt,
+        bool isWin,
+        bool isPaused,
+        const CapsConfig& cfg
+    ) {
         if (!capsPressed_) {
             return {};
         }
@@ -136,7 +145,26 @@ public:
             bufferResetForHold_ = true;
             act.resetBuffer = true;
         }
+
+        if (holdSwitched_ && IsTopRowDigit(vkCode) && !isShift && !isCtrl && !isAlt && !isWin) {
+            suppressedDigitsMask_ |= static_cast<uint16_t>(1u << (vkCode - '0'));
+            act.suppressKey = true;
+            act.emitShiftedDigit = true;
+            act.targetLang = targetLang_;
+        }
         return act;
+    }
+
+    bool ShouldSuppressKeyUp(DWORD vkCode) {
+        if (!IsTopRowDigit(vkCode)) {
+            return false;
+        }
+        uint16_t bit = static_cast<uint16_t>(1u << (vkCode - '0'));
+        if (suppressedDigitsMask_ & bit) {
+            suppressedDigitsMask_ &= ~bit;
+            return true;
+        }
+        return false;
     }
 
     void Reset() {
@@ -145,6 +173,7 @@ public:
         holdSwitched_ = false;
         usedWhileHeld_ = false;
         bufferResetForHold_ = false;
+        suppressedDigitsMask_ = 0;
         origLang_ = LANG_ID_EN;
         targetLang_ = LANG_ID_RU;
         pressTimeMs_ = 0;
@@ -154,11 +183,16 @@ public:
     bool IsCapsPressed() const { return capsPressed_; }
 
 private:
+    static bool IsTopRowDigit(DWORD vkCode) {
+        return vkCode >= '0' && vkCode <= '9';
+    }
+
     bool capsPressed_ = false;
     bool winCapsPassthrough_ = false;
     bool holdSwitched_ = false;
     bool usedWhileHeld_ = false;
     bool bufferResetForHold_ = false;
+    uint16_t suppressedDigitsMask_ = 0;
     WORD origLang_ = LANG_ID_EN;
     WORD targetLang_ = LANG_ID_RU;
     uint64_t pressTimeMs_ = 0;

@@ -1,6 +1,6 @@
 # CapsSwitch ⚡
 
-[![Release](https://img.shields.io/badge/Release-v1.4.0-blue.svg)](https://github.com/M0ntang/CapsSwitch/releases)
+[![Release](https://img.shields.io/badge/Release-v1.4.1-blue.svg)](https://github.com/M0ntang/CapsSwitch/releases)
 [![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011%20(x64)-0078D4.svg)](https://microsoft.com/windows)
 [![RAM](https://img.shields.io/badge/RAM-%3C%202--5%20MB-10B981.svg)]()
 [![License](https://img.shields.io/badge/License-MIT-lightgrey.svg)]()
@@ -82,6 +82,7 @@ CapsSwitch/
 
 ### 3. Переназначение и умные действия клавиши Caps Lock
 - **Переключение при удержании (Hold Caps Lock + Shift):** Пока клавиша `Caps Lock` зажата, раскладка временно переключается на противоположную, а при отпускании возвращается назад. Поддерживается одновременное нажатие `Shift + Caps Lock` для ввода заглавных букв во временно переключённой раскладке.
+- **Спецсимволы по `Caps Lock + цифра`:** При удержании `Caps Lock` и нажатии цифры верхнего ряда (`1`–`0`) автоматически печатается символ верхнего регистра переключённой раскладки без необходимости зажимать `Shift` (например, из `RU` в `EN`: `@`, `#`, `$`, `^`, `&`; из `EN` в `RU`: `"`, `№`, `;`, `:`, `?`).
 - **Короткое переключение раскладки:** Быстрое нажатие `Caps Lock` циклически переключает раскладку (**RU $\leftrightarrow$ EN**) без фиксации системного регистра.
 - **Системный Caps Lock по `Win + Caps Lock`:** Нажатие `Windows + Caps Lock` активирует или отключает штатный режим Caps Lock в Windows.
 - **Перевод по двойному нажатию (2x Caps Lock):** Быстрый двойной клик по клавише Caps Lock автоматически переводит:
