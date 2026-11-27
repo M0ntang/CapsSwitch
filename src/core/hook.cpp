@@ -13,8 +13,6 @@ HWINEVENTHOOK HookManager::s_hWinEventHook = nullptr;
 std::atomic<bool> HookManager::s_isPaused(false);
 HookManager* HookManager::s_instance = nullptr;
 
-static bool s_capsIsPressed = false;
-
 HookManager& HookManager::Instance() {
     static HookManager s_instanceObj;
     return s_instanceObj;
@@ -36,11 +34,13 @@ void HookManager::SetPaused(bool paused) {
     isPaused_.store(paused, std::memory_order_relaxed);
     s_isPaused.store(paused, std::memory_order_relaxed);
     if (paused) {
-        capsTogglePending_.store(false, std::memory_order_relaxed);
+        pendingSwitchLang_.store(0, std::memory_order_relaxed);
+        pendingSwitchHwnd_.store(nullptr, std::memory_order_relaxed);
         doubleCapsPending_.store(false, std::memory_order_relaxed);
         foregroundChangedPending_.store(false, std::memory_order_relaxed);
         pendingForegroundHwnd_.store(nullptr, std::memory_order_relaxed);
-        lastCapsPressMs_ = 0;
+        capsHoldHwnd_ = nullptr;
+        capsState_.Reset();
         PushResetEvent(true);
         Detector::Instance().Reset();
     } else {
@@ -147,34 +147,15 @@ void HookManager::PushResetEvent(bool clearPendingKeys) {
     SetEvent(hKeyEvent_);
 }
 
-void HookManager::OnCapsPress() {
-    uint64_t now = Platform::GetCurrentTimeMicroseconds() / 1000;
-    uint64_t diff = (lastCapsPressMs_ != 0 && now >= lastCapsPressMs_)
-                        ? (now - lastCapsPressMs_)
-                        : UINT64_MAX;
-
-    auto& cfgMgr = Config::ConfigManager::Instance();
-    if (cfgMgr.DoubleCapsConvert() && diff <= 450 && diff >= 30) {
-        // Quick double-click detected -> translate selection or last word, reset timer to prevent 3rd-click chaining
-        lastCapsPressMs_ = 0;
-        PostDoubleCapsAction();
-    } else {
-        lastCapsPressMs_ = now;
-        if (cfgMgr.CapsLockSwitch()) {
-            // Single click -> toggle layout
-            PostCapsToggle();
-        }
-    }
-}
-
-void HookManager::PostCapsToggle() {
-    capsTogglePending_.store(true, std::memory_order_release);
+void HookManager::PostLayoutSwitch(WORD targetLang, HWND targetHwnd) {
+    pendingSwitchHwnd_.store(targetHwnd, std::memory_order_release);
+    pendingSwitchLang_.store(targetLang, std::memory_order_release);
     SetEvent(hKeyEvent_);
 }
 
 void HookManager::PostDoubleCapsAction() {
-    // If a double-click occurs, cancel the pending single-click toggle and trigger convert
-    capsTogglePending_.store(false, std::memory_order_release);
+    // If a double-click occurs, cancel any pending layout switch and trigger convert
+    pendingSwitchLang_.store(0, std::memory_order_release);
     doubleCapsPending_.store(true, std::memory_order_release);
     SetEvent(hKeyEvent_);
 }
@@ -233,26 +214,65 @@ LRESULT CALLBACK HookManager::LowLevelKeyboardProc(int nCode, WPARAM wParam, LPA
     bool isWin = ((GetAsyncKeyState(VK_LWIN) & 0x8000) != 0) || ((GetAsyncKeyState(VK_RWIN) & 0x8000) != 0);
     bool isCapsLock = (GetKeyState(VK_CAPITAL) & 0x0001) != 0;
 
-    // 2. Caps Lock Interception (Shift+Caps passes through to toggle real Caps Lock)
-    if (pKbd->vkCode == VK_CAPITAL && !s_isPaused.load(std::memory_order_relaxed)) {
-        auto& cfgMgr = Config::ConfigManager::Instance();
-        if (isUp && s_capsIsPressed) {
-            // Always clear pressed state on release even if modifiers were pressed mid-hold
-            s_capsIsPressed = false;
-            return 1;
-        }
-        if (!isShift && !isCtrl && !isAlt && !isWin && (cfgMgr.CapsLockSwitch() || cfgMgr.DoubleCapsConvert())) {
-            if (isDown) {
-                // Filter out auto-repeat: trigger only on initial physical keydown
-                if (!s_capsIsPressed) {
-                    s_capsIsPressed = true;
-                    if (s_instance) {
-                        s_instance->OnCapsPress();
-                    }
-                }
+    bool isPaused = s_isPaused.load(std::memory_order_relaxed);
+    auto& cfgMgr = Config::ConfigManager::Instance();
+    CapsConfig capsCfg{ cfgMgr.CapsLockSwitch(), cfgMgr.CapsHoldSwitch(), cfgMgr.DoubleCapsConvert() };
+
+    // 2. Caps Lock Interception (Win+Caps toggles real Caps Lock; bare or Shift+Caps switches layout)
+    if (pKbd->vkCode == VK_CAPITAL && s_instance) {
+        uint64_t nowMs = Platform::GetCurrentTimeMicroseconds() / 1000;
+        if (isDown) {
+            HWND fg = GetForegroundWindow();
+            WORD curLang = (!isPaused && !isWin && !isCtrl && !isAlt && (capsCfg.capsLockSwitch || capsCfg.capsHoldSwitch))
+                               ? LayoutEngine::Instance().GetLayout(fg)
+                               : LANG_ID_EN;
+            CapsAction act = s_instance->capsState_.OnCapsDown(nowMs, isShift, isCtrl, isAlt, isWin, isPaused, curLang, capsCfg);
+            if (act.resetBuffer) {
+                s_instance->PushResetEvent(true);
             }
-            // Suppress standard Caps Lock toggle in OS
-            return 1;
+            if (act.triggerDoubleCaps) {
+                s_instance->PostDoubleCapsAction();
+            } else if (act.switchLayout && act.targetLang != 0) {
+                s_instance->capsHoldHwnd_ = fg;
+                LayoutEngine::Instance().QuickRequestSwitchLayout(fg, act.targetLang);
+                s_instance->PostLayoutSwitch(act.targetLang, fg);
+            }
+            if (act.suppressKey) {
+                return 1;
+            }
+            return CallNextHookEx(s_hKbdHook, nCode, wParam, lParam);
+        }
+        if (isUp) {
+            CapsAction act = s_instance->capsState_.OnCapsUp(nowMs, isPaused, capsCfg);
+            if (act.resetBuffer) {
+                s_instance->PushResetEvent(true);
+            }
+            if (act.switchLayout && act.targetLang != 0) {
+                HWND fg = GetForegroundWindow();
+                HWND targetWnd = (s_instance->capsHoldHwnd_ && fg != s_instance->capsHoldHwnd_ && IsWindow(s_instance->capsHoldHwnd_))
+                                     ? s_instance->capsHoldHwnd_
+                                     : fg;
+                LayoutEngine::Instance().QuickRequestSwitchLayout(targetWnd, act.targetLang);
+                if (targetWnd == fg) {
+                    s_instance->PostLayoutSwitch(act.targetLang, fg);
+                }
+                s_instance->capsHoldHwnd_ = nullptr;
+            }
+            if (act.suppressKey) {
+                return 1;
+            }
+            return CallNextHookEx(s_hKbdHook, nCode, wParam, lParam);
+        }
+    }
+
+    // Track keys typed while Caps Lock is held (suppress Detector buffering, keep Shift/chars intact)
+    if (isDown && s_instance) {
+        CapsAction otherAct = s_instance->capsState_.OnOtherKeyDown(pKbd->vkCode, isPaused, capsCfg);
+        if (otherAct.resetBuffer) {
+            s_instance->PushResetEvent(true);
+        }
+        if (otherAct.skipDetectorForKey) {
+            return CallNextHookEx(s_hKbdHook, nCode, wParam, lParam);
         }
     }
 
@@ -340,12 +360,15 @@ void HookManager::WorkerThreadLoop() {
             }
         }
 
-        // Process pending Caps Lock toggle
-        if (capsTogglePending_.exchange(false, std::memory_order_acquire)) {
+        // Process pending Caps Lock layout switch
+        WORD targetLang = pendingSwitchLang_.exchange(0, std::memory_order_acquire);
+        if (targetLang != 0) {
+            HWND targetWnd = pendingSwitchHwnd_.load(std::memory_order_acquire);
             HWND fg = GetForegroundWindow();
-            if (fg) {
-                LayoutEngine::Instance().ToggleLayout(fg);
-                WORD newLang = LayoutEngine::Instance().GetLayout(fg);
+            HWND useWnd = (targetWnd && targetWnd == fg) ? targetWnd : fg;
+            if (useWnd) {
+                LayoutEngine::Instance().SwitchLayout(useWnd, targetLang);
+                WORD newLang = LayoutEngine::Instance().GetLayout(useWnd);
                 if (onLayoutChanged_) {
                     onLayoutChanged_(newLang);
                 }

@@ -19,6 +19,7 @@ public:
     // Layout identification & switching
     void RefreshLayouts();
     WORD GetLayout(HWND hwnd);
+    bool QuickRequestSwitchLayout(HWND hwnd, WORD targetLang);
     bool SwitchLayout(HWND hwnd, WORD targetLang);
     bool ToggleLayout(HWND hwnd);
 

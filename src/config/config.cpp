@@ -30,6 +30,18 @@ static std::wstring SanitizeProcessName(const std::wstring& raw) {
     return cleaned;
 }
 
+static std::wstring SanitizeWord(const std::wstring& raw) {
+    size_t start = raw.find_first_not_of(L" \t\r\n");
+    if (start == std::wstring::npos) return L"";
+    size_t end = raw.find_last_not_of(L" \t\r\n");
+    std::wstring cleaned = raw.substr(start, end - start + 1);
+    if (cleaned.empty()) return L"";
+    if (cleaned.find_first_of(L" \t\r\n") != std::wstring::npos) {
+        return L"";
+    }
+    return Platform::ToLower(cleaned);
+}
+
 static std::string EscapeJsonString(const std::string& input) {
     std::string out;
     out.reserve(input.size() + 8);
@@ -166,82 +178,45 @@ void AppConfig::RemoveAppLayout(const std::wstring& processName) {
     );
 }
 
-ConfigManager& ConfigManager::Instance() {
-    static ConfigManager s_instance;
-    return s_instance;
-}
-
-ConfigManager::ConfigManager() {
-    Load();
-}
-
-void ConfigManager::SyncAtomicsLocked(bool bumpAppLayoutsVersion) {
-    autoSwitchAtomic_.store(config_.autoSwitch, std::memory_order_relaxed);
-    capsLockSwitchAtomic_.store(config_.capsLockSwitch, std::memory_order_relaxed);
-    doubleCapsConvertAtomic_.store(config_.doubleCapsConvert, std::memory_order_relaxed);
-    passwordGuardAtomic_.store(config_.passwordGuard, std::memory_order_relaxed);
-    hasAppLayoutRulesAtomic_.store(!config_.appLayouts.empty(), std::memory_order_relaxed);
-    if (bumpAppLayoutsVersion) {
-        appLayoutsVersion_.fetch_add(1, std::memory_order_relaxed);
+AppLayout AppConfig::GetWordRule(const std::wstring& word) const {
+    std::wstring normalized = SanitizeWord(word);
+    if (normalized.empty()) return AppLayout::None;
+    for (const auto& rule : wordDictionary) {
+        if (Platform::ToLower(rule.word) == normalized) {
+            return rule.layout;
+        }
     }
+    return AppLayout::None;
 }
 
-AppConfig ConfigManager::GetSnapshot() const {
-    std::lock_guard<std::mutex> lock(mutex_);
-    return config_;
-}
-
-bool ConfigManager::IsProcessExcluded(const std::wstring& processName) const {
-    std::lock_guard<std::mutex> lock(mutex_);
-    return config_.IsExcluded(processName);
-}
-
-AppLayout ConfigManager::GetProcessLayout(const std::wstring& processName) const {
-    std::lock_guard<std::mutex> lock(mutex_);
-    return config_.GetAppLayout(processName);
-}
-
-void ConfigManager::Update(const std::function<void(AppConfig&)>& updater) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    std::vector<AppLayoutRule> prevRules = config_.appLayouts;
-    updater(config_);
-    bool rulesChanged = (prevRules != config_.appLayouts);
-    SyncAtomicsLocked(rulesChanged);
-}
-
-std::wstring ConfigManager::GetExecutablePath() {
-    wchar_t buffer[MAX_PATH] = { 0 };
-    GetModuleFileNameW(nullptr, buffer, MAX_PATH);
-    return std::wstring(buffer);
-}
-
-std::wstring ConfigManager::GetConfigFilePath() const {
-    std::wstring exePath = GetExecutablePath();
-    size_t lastSlash = exePath.find_last_of(L"\\/");
-    if (lastSlash != std::wstring::npos) {
-        return exePath.substr(0, lastSlash + 1) + L"config.json";
+void AppConfig::SetWordRule(const std::wstring& word, AppLayout layout) {
+    std::wstring normalized = SanitizeWord(word);
+    if (normalized.empty()) return;
+    if (layout == AppLayout::None) {
+        RemoveWordRule(normalized);
+        return;
     }
-    return L"config.json";
+    for (auto& rule : wordDictionary) {
+        if (Platform::ToLower(rule.word) == normalized) {
+            rule.word = normalized;
+            rule.layout = layout;
+            return;
+        }
+    }
+    wordDictionary.push_back({ normalized, layout });
 }
 
-bool ConfigManager::Load() {
-    std::lock_guard<std::mutex> lock(mutex_);
-    std::wstring configPath = GetConfigFilePath();
-    std::ifstream file(configPath.c_str(), std::ios::in | std::ios::binary);
-    if (!file.is_open()) {
-        // If config doesn't exist, create it with default values next to .exe
-        config_.autostart = IsAutostartInRegistry();
-        SyncAtomicsLocked();
-        SaveLocked();
-        return true;
-    }
+void AppConfig::RemoveWordRule(const std::wstring& word) {
+    std::wstring normalized = SanitizeWord(word);
+    if (normalized.empty()) return;
+    wordDictionary.erase(
+        std::remove_if(wordDictionary.begin(), wordDictionary.end(),
+            [&normalized](const WordSwitchRule& r) { return Platform::ToLower(r.word) == normalized; }),
+        wordDictionary.end()
+    );
+}
 
-    std::stringstream buffer;
-    buffer << file.rdbuf();
-    std::string content = buffer.str();
-    file.close();
-
-    // Lightweight parsing of JSON fields
+void ParseConfigJson(const std::string& content, AppConfig& cfg) {
     auto parseBool = [&content](const std::string& key, bool defaultVal) -> bool {
         size_t pos = content.find("\"" + key + "\"");
         if (pos == std::string::npos) return defaultVal;
@@ -259,14 +234,15 @@ bool ConfigManager::Load() {
         return defaultVal;
     };
 
-    config_.autoSwitch = parseBool("auto_switch", true);
-    config_.capsLockSwitch = parseBool("caps_lock_switch", true);
-    config_.doubleCapsConvert = parseBool("double_caps_convert", true);
-    config_.passwordGuard = parseBool("password_guard", true);
-    config_.autostart = parseBool("autostart", false);
+    cfg.autoSwitch = parseBool("auto_switch", true);
+    cfg.capsLockSwitch = parseBool("caps_lock_switch", true);
+    cfg.capsHoldSwitch = parseBool("caps_hold_switch", true);
+    cfg.doubleCapsConvert = parseBool("double_caps_convert", true);
+    cfg.passwordGuard = parseBool("password_guard", true);
+    cfg.autostart = parseBool("autostart", false);
 
     // Parse theme
-    config_.theme = ThemeMode::Auto;
+    cfg.theme = ThemeMode::Auto;
     {
         size_t themePos = content.find("\"theme\"");
         if (themePos != std::string::npos) {
@@ -279,9 +255,9 @@ bool ConfigManager::Load() {
                 if (ParseJsonString(content, p, themeVal)) {
                     std::string lowerTheme = Platform::ToLower(themeVal);
                     if (lowerTheme == "light") {
-                        config_.theme = ThemeMode::Light;
+                        cfg.theme = ThemeMode::Light;
                     } else if (lowerTheme == "dark") {
-                        config_.theme = ThemeMode::Dark;
+                        cfg.theme = ThemeMode::Dark;
                     }
                 }
             }
@@ -294,7 +270,7 @@ bool ConfigManager::Load() {
         size_t arrayStart = content.find('[', exclPos);
         size_t arrayEnd = (arrayStart != std::string::npos) ? content.find(']', arrayStart) : std::string::npos;
         if (arrayStart != std::string::npos && arrayEnd != std::string::npos) {
-            config_.exclusions.clear();
+            cfg.exclusions.clear();
             std::string arrStr = content.substr(arrayStart + 1, arrayEnd - arrayStart - 1);
             size_t idx = 0;
             while (idx < arrStr.length()) {
@@ -304,7 +280,7 @@ bool ConfigManager::Load() {
                 size_t pos = q1;
                 if (!ParseJsonString(arrStr, pos, item)) break;
                 if (!item.empty()) {
-                    config_.AddExclusion(Platform::Utf8ToWide(item));
+                    cfg.AddExclusion(Platform::Utf8ToWide(item));
                 }
                 idx = pos;
             }
@@ -312,7 +288,7 @@ bool ConfigManager::Load() {
     }
 
     // Parse app_layouts object
-    config_.appLayouts.clear();
+    cfg.appLayouts.clear();
     size_t appLayoutsPos = content.find("\"app_layouts\"");
     if (appLayoutsPos != std::string::npos) {
         size_t colonPos = content.find(':', appLayoutsPos);
@@ -338,15 +314,203 @@ bool ConfigManager::Load() {
 
                 std::string lowerVal = Platform::ToLower(val);
                 if (lowerVal == "ru" || lowerVal == "russian") {
-                    config_.SetAppLayout(Platform::Utf8ToWide(key), AppLayout::Russian);
+                    cfg.SetAppLayout(Platform::Utf8ToWide(key), AppLayout::Russian);
                 } else if (lowerVal == "en" || lowerVal == "english") {
-                    config_.SetAppLayout(Platform::Utf8ToWide(key), AppLayout::English);
+                    cfg.SetAppLayout(Platform::Utf8ToWide(key), AppLayout::English);
                 }
             }
         }
     }
 
-    SyncAtomicsLocked(true);
+    // Parse switch_dictionary object (preserve defaults if absent in older config.json)
+    size_t dictPos = content.find("\"switch_dictionary\"");
+    if (dictPos != std::string::npos) {
+        size_t colonPos = content.find(':', dictPos);
+        size_t objStart = (colonPos != std::string::npos) ? content.find('{', colonPos) : std::string::npos;
+        size_t objEnd = (objStart != std::string::npos) ? FindMatchingBrace(content, objStart) : std::string::npos;
+        if (objStart != std::string::npos && objEnd != std::string::npos) {
+            cfg.wordDictionary.clear();
+            size_t pos = objStart + 1;
+            while (pos < objEnd) {
+                size_t keyStart = content.find('\"', pos);
+                if (keyStart == std::string::npos || keyStart >= objEnd) break;
+                std::string key;
+                pos = keyStart;
+                if (!ParseJsonString(content, pos, key)) break;
+
+                size_t pairColon = content.find(':', pos);
+                if (pairColon == std::string::npos || pairColon >= objEnd) break;
+
+                size_t valStart = content.find('\"', pairColon + 1);
+                if (valStart == std::string::npos || valStart >= objEnd) break;
+                std::string val;
+                pos = valStart;
+                if (!ParseJsonString(content, pos, val)) break;
+
+                std::string lowerVal = Platform::ToLower(val);
+                if (lowerVal == "ru" || lowerVal == "russian") {
+                    cfg.SetWordRule(Platform::Utf8ToWide(key), AppLayout::Russian);
+                } else if (lowerVal == "en" || lowerVal == "english") {
+                    cfg.SetWordRule(Platform::Utf8ToWide(key), AppLayout::English);
+                }
+            }
+        }
+    }
+}
+
+std::string SerializeConfigJson(const AppConfig& cfg) {
+    const char* themeStr = "auto";
+    if (cfg.theme == ThemeMode::Light) themeStr = "light";
+    else if (cfg.theme == ThemeMode::Dark) themeStr = "dark";
+
+    std::ostringstream ss;
+    ss << "{\n";
+    ss << "  \"auto_switch\": " << (cfg.autoSwitch ? "true" : "false") << ",\n";
+    ss << "  \"caps_lock_switch\": " << (cfg.capsLockSwitch ? "true" : "false") << ",\n";
+    ss << "  \"caps_hold_switch\": " << (cfg.capsHoldSwitch ? "true" : "false") << ",\n";
+    ss << "  \"double_caps_convert\": " << (cfg.doubleCapsConvert ? "true" : "false") << ",\n";
+    ss << "  \"password_guard\": " << (cfg.passwordGuard ? "true" : "false") << ",\n";
+    ss << "  \"autostart\": " << (cfg.autostart ? "true" : "false") << ",\n";
+    ss << "  \"theme\": \"" << themeStr << "\",\n";
+    ss << "  \"exclusions\": [\n";
+
+    for (size_t i = 0; i < cfg.exclusions.size(); ++i) {
+        std::string utf8Item = EscapeJsonString(Platform::WideToUtf8(cfg.exclusions[i]));
+        ss << "    \"" << utf8Item << "\"";
+        if (i + 1 < cfg.exclusions.size()) {
+            ss << ",";
+        }
+        ss << "\n";
+    }
+
+    ss << "  ],\n";
+    if (cfg.appLayouts.empty()) {
+        ss << "  \"app_layouts\": {},\n";
+    } else {
+        ss << "  \"app_layouts\": {\n";
+        for (size_t i = 0; i < cfg.appLayouts.size(); ++i) {
+            const auto& rule = cfg.appLayouts[i];
+            std::string utf8Proc = EscapeJsonString(Platform::WideToUtf8(rule.processName));
+            const char* langStr = (rule.layout == AppLayout::Russian) ? "ru" : "en";
+            ss << "    \"" << utf8Proc << "\": \"" << langStr << "\"";
+            if (i + 1 < cfg.appLayouts.size()) {
+                ss << ",";
+            }
+            ss << "\n";
+        }
+        ss << "  },\n";
+    }
+
+    if (cfg.wordDictionary.empty()) {
+        ss << "  \"switch_dictionary\": {}\n";
+    } else {
+        ss << "  \"switch_dictionary\": {\n";
+        for (size_t i = 0; i < cfg.wordDictionary.size(); ++i) {
+            const auto& rule = cfg.wordDictionary[i];
+            std::string utf8Word = EscapeJsonString(Platform::WideToUtf8(rule.word));
+            const char* langStr = (rule.layout == AppLayout::Russian) ? "ru" : "en";
+            ss << "    \"" << utf8Word << "\": \"" << langStr << "\"";
+            if (i + 1 < cfg.wordDictionary.size()) {
+                ss << ",";
+            }
+            ss << "\n";
+        }
+        ss << "  }\n";
+    }
+    ss << "}\n";
+    return ss.str();
+}
+
+ConfigManager& ConfigManager::Instance() {
+    static ConfigManager s_instance;
+    return s_instance;
+}
+
+ConfigManager::ConfigManager() {
+    Load();
+}
+
+void ConfigManager::SyncAtomicsLocked(bool bumpAppLayoutsVersion, bool bumpWordDictVersion) {
+    autoSwitchAtomic_.store(config_.autoSwitch, std::memory_order_relaxed);
+    capsLockSwitchAtomic_.store(config_.capsLockSwitch, std::memory_order_relaxed);
+    capsHoldSwitchAtomic_.store(config_.capsHoldSwitch, std::memory_order_relaxed);
+    doubleCapsConvertAtomic_.store(config_.doubleCapsConvert, std::memory_order_relaxed);
+    passwordGuardAtomic_.store(config_.passwordGuard, std::memory_order_relaxed);
+    hasAppLayoutRulesAtomic_.store(!config_.appLayouts.empty(), std::memory_order_relaxed);
+    hasWordDictionaryAtomic_.store(!config_.wordDictionary.empty(), std::memory_order_relaxed);
+    if (bumpAppLayoutsVersion) {
+        appLayoutsVersion_.fetch_add(1, std::memory_order_relaxed);
+    }
+    if (bumpWordDictVersion) {
+        wordDictionaryVersion_.fetch_add(1, std::memory_order_relaxed);
+    }
+}
+
+AppConfig ConfigManager::GetSnapshot() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return config_;
+}
+
+bool ConfigManager::IsProcessExcluded(const std::wstring& processName) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return config_.IsExcluded(processName);
+}
+
+AppLayout ConfigManager::GetProcessLayout(const std::wstring& processName) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return config_.GetAppLayout(processName);
+}
+
+std::vector<WordSwitchRule> ConfigManager::GetWordDictionarySnapshot() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return config_.wordDictionary;
+}
+
+void ConfigManager::Update(const std::function<void(AppConfig&)>& updater) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<AppLayoutRule> prevRules = config_.appLayouts;
+    std::vector<WordSwitchRule> prevWords = config_.wordDictionary;
+    updater(config_);
+    bool rulesChanged = (prevRules != config_.appLayouts);
+    bool wordsChanged = (prevWords != config_.wordDictionary);
+    SyncAtomicsLocked(rulesChanged, wordsChanged);
+}
+
+std::wstring ConfigManager::GetExecutablePath() {
+    wchar_t buffer[MAX_PATH] = { 0 };
+    GetModuleFileNameW(nullptr, buffer, MAX_PATH);
+    return std::wstring(buffer);
+}
+
+std::wstring ConfigManager::GetConfigFilePath() const {
+    std::wstring exePath = GetExecutablePath();
+    size_t lastSlash = exePath.find_last_of(L"\\/");
+    if (lastSlash != std::wstring::npos) {
+        return exePath.substr(0, lastSlash + 1) + L"config.json";
+    }
+    return L"config.json";
+}
+
+bool ConfigManager::Load() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::wstring configPath = GetConfigFilePath();
+    std::ifstream file(configPath.c_str(), std::ios::in | std::ios::binary);
+    if (!file.is_open()) {
+        // If config doesn't exist, create it with default values next to .exe
+        config_.autostart = IsAutostartInRegistry();
+        SyncAtomicsLocked(true, true);
+        SaveLocked();
+        return true;
+    }
+
+    std::stringstream buffer;
+    buffer << file.rdbuf();
+    std::string content = buffer.str();
+    file.close();
+
+    ParseConfigJson(content, config_);
+
+    SyncAtomicsLocked(true, true);
     SyncAutostartLocked();
     return true;
 }
@@ -356,53 +520,11 @@ bool ConfigManager::SaveLocked() {
     std::ofstream file(configPath.c_str(), std::ios::out | std::ios::binary | std::ios::trunc);
     if (!file.is_open()) return false;
 
-    const char* themeStr = "auto";
-    if (config_.theme == ThemeMode::Light) themeStr = "light";
-    else if (config_.theme == ThemeMode::Dark) themeStr = "dark";
-
-    std::ostringstream ss;
-    ss << "{\n";
-    ss << "  \"auto_switch\": " << (config_.autoSwitch ? "true" : "false") << ",\n";
-    ss << "  \"caps_lock_switch\": " << (config_.capsLockSwitch ? "true" : "false") << ",\n";
-    ss << "  \"double_caps_convert\": " << (config_.doubleCapsConvert ? "true" : "false") << ",\n";
-    ss << "  \"password_guard\": " << (config_.passwordGuard ? "true" : "false") << ",\n";
-    ss << "  \"autostart\": " << (config_.autostart ? "true" : "false") << ",\n";
-    ss << "  \"theme\": \"" << themeStr << "\",\n";
-    ss << "  \"exclusions\": [\n";
-
-    for (size_t i = 0; i < config_.exclusions.size(); ++i) {
-        std::string utf8Item = EscapeJsonString(Platform::WideToUtf8(config_.exclusions[i]));
-        ss << "    \"" << utf8Item << "\"";
-        if (i + 1 < config_.exclusions.size()) {
-            ss << ",";
-        }
-        ss << "\n";
-    }
-
-    ss << "  ],\n";
-    if (config_.appLayouts.empty()) {
-        ss << "  \"app_layouts\": {}\n";
-    } else {
-        ss << "  \"app_layouts\": {\n";
-        for (size_t i = 0; i < config_.appLayouts.size(); ++i) {
-            const auto& rule = config_.appLayouts[i];
-            std::string utf8Proc = EscapeJsonString(Platform::WideToUtf8(rule.processName));
-            const char* langStr = (rule.layout == AppLayout::Russian) ? "ru" : "en";
-            ss << "    \"" << utf8Proc << "\": \"" << langStr << "\"";
-            if (i + 1 < config_.appLayouts.size()) {
-                ss << ",";
-            }
-            ss << "\n";
-        }
-        ss << "  }\n";
-    }
-    ss << "}\n";
-
-    std::string out = ss.str();
+    std::string out = SerializeConfigJson(config_);
     file.write(out.data(), out.size());
     file.close();
 
-    SyncAtomicsLocked(false);
+    SyncAtomicsLocked(false, false);
     SetAutostartRegistry(config_.autostart);
     return true;
 }

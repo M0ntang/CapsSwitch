@@ -1084,6 +1084,13 @@ void DrawFluentIcon(
         rt->DrawRoundedRectangle(D2D1::RoundedRect(r(9.7f, 2.0f, 13.9f, 6.2f), rad, rad), brush, sw, round);
         break;
     }
+    case FluentIcon::Book: {
+        rt->DrawRoundedRectangle(D2D1::RoundedRect(r(3.0f, 2.2f, 13.0f, 13.8f), 1.6f * s, 1.6f * s), brush, sw, round);
+        rt->DrawLine(pt(5.6f, 2.4f), pt(5.6f, 13.6f), brush, sw, round);
+        rt->DrawLine(pt(7.6f, 6.0f), pt(11.0f, 6.0f), brush, sw, round);
+        rt->DrawLine(pt(7.6f, 8.8f), pt(10.6f, 8.8f), brush, sw, round);
+        break;
+    }
     case FluentIcon::Block: {
         rt->DrawEllipse(D2D1::Ellipse(pt(8.0f, 8.0f), 5.6f * s, 5.6f * s), brush, sw, round);
         rt->DrawLine(pt(4.1f, 4.1f), pt(11.9f, 11.9f), brush, sw, round);

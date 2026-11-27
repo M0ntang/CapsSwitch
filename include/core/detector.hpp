@@ -1,7 +1,9 @@
 #pragma once
 
+#include <cstdint>
 #include <mutex>
 #include <string>
+#include <unordered_set>
 #include <vector>
 #include <windows.h>
 
@@ -56,11 +58,18 @@ private:
     // Dictionary lookups
     bool IsCommonRussianWord(const std::wstring& word) const;
     bool IsCommonEnglishWord(const std::wstring& word) const;
+    void SyncCustomDictionaryLocked();
 
     mutable std::mutex mutex_;
     std::wstring currentBuffer_;
     std::wstring lastWord_;
     wchar_t lastDelimiter_ = 0;
+
+    uint64_t cachedWordDictVersion_ = 0;
+    std::unordered_set<std::wstring> customEnToRuTriggers_;
+    std::unordered_set<std::wstring> customRuToEnTriggers_;
+    std::unordered_set<std::wstring> customRuProtected_;
+    std::unordered_set<std::wstring> customEnProtected_;
 };
 
 } // namespace Core

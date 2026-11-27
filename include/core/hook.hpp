@@ -8,6 +8,7 @@
 #include <string>
 #include <thread>
 #include <functional>
+#include "core/caps_state_machine.hpp"
 
 namespace Core {
 
@@ -40,8 +41,7 @@ public:
     // Queue & Action management
     void PushKeyEvent(const RawKeyEvent& ev);
     void PushResetEvent(bool clearPendingKeys = true);
-    void OnCapsPress();
-    void PostCapsToggle();
+    void PostLayoutSwitch(WORD targetLang, HWND targetHwnd = nullptr);
     void PostDoubleCapsAction();
     void OnForegroundChanged(HWND hwnd);
 
@@ -73,13 +73,15 @@ private:
 
     std::atomic<bool> isRunning_{ false };
     std::atomic<bool> isPaused_{ false };
-    std::atomic<bool> capsTogglePending_{ false };
+    std::atomic<WORD> pendingSwitchLang_{ 0 };
+    std::atomic<HWND> pendingSwitchHwnd_{ nullptr };
     std::atomic<bool> doubleCapsPending_{ false };
     std::atomic<bool> foregroundChangedPending_{ false };
     std::atomic<HWND> pendingForegroundHwnd_{ nullptr };
     std::atomic<bool> resetForegroundTracking_{ false };
 
-    uint64_t lastCapsPressMs_ = 0;
+    CapsLockStateMachine capsState_;
+    HWND capsHoldHwnd_ = nullptr;
     std::wstring lastForegroundProcess_;
     uint64_t lastAppliedRulesVersion_ = 0;
 

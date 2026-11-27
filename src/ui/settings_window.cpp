@@ -12,7 +12,7 @@
 namespace UI {
 
 constexpr float WND_LOGICAL_W = 680.0f;
-constexpr float WND_LOGICAL_H = 548.0f;
+constexpr float WND_LOGICAL_H = 572.0f;
 
 constexpr float SIDEBAR_W = 192.0f;
 constexpr float FOOTER_H = 42.0f;
@@ -38,16 +38,17 @@ constexpr float BODY_TOP = 68.0f;
 constexpr float BODY_BOTTOM = FOOTER_Y - 1.0f;
 
 // General section rows
-constexpr float SEC1_ROW0_Y = 172.0f;
-constexpr float SEC2_ROW0_Y = 368.0f;
-constexpr float ROW_H = 52.0f;
+constexpr float SEC1_ROW0_Y = 166.0f;
+constexpr float SEC2_ROW0_Y = 396.0f;
+constexpr float ROW_H = 48.0f;
 
-// AppLayouts & Exclusions toolbar and list
+// AppLayouts, Dictionary & Exclusions toolbar and list
 constexpr float TOOLBAR_Y = 78.0f;
 constexpr float TOOLBAR_H = 34.0f;
 constexpr float LIST_Y = 124.0f;
-constexpr float LIST_H = 362.0f;
+constexpr float LIST_H = 386.0f;
 constexpr float APP_ROW_H = 44.0f;
+constexpr float DICT_ROW_H = 48.0f;
 constexpr float EXCL_ROW_H = 44.0f;
 
 constexpr UINT_PTR TIMER_ANIM = 101;
@@ -80,7 +81,7 @@ D2D1_RECT_F RcFooterPauseBtn() {
 }
 
 D2D1_RECT_F RcToggleRow(int idx) {
-    float y = (idx < 3) ? (SEC1_ROW0_Y + idx * ROW_H) : (SEC2_ROW0_Y + (idx - 3) * ROW_H);
+    float y = (idx < 4) ? (SEC1_ROW0_Y + idx * ROW_H) : (SEC2_ROW0_Y + (idx - 4) * ROW_H);
     return D2D1::RectF(WORK_PAD_X - 8.0f, y, WORK_RIGHT + 8.0f, y + ROW_H);
 }
 
@@ -89,6 +90,11 @@ D2D1_RECT_F RcAppPick()   { return D2D1::RectF(WORK_PAD_X + 182.0f, TOOLBAR_Y, W
 D2D1_RECT_F RcAppLangEn() { return D2D1::RectF(WORK_PAD_X + 264.0f, TOOLBAR_Y, WORK_PAD_X + 304.0f, TOOLBAR_Y + TOOLBAR_H); }
 D2D1_RECT_F RcAppLangRu() { return D2D1::RectF(WORK_PAD_X + 304.0f, TOOLBAR_Y, WORK_PAD_X + 344.0f, TOOLBAR_Y + TOOLBAR_H); }
 D2D1_RECT_F RcAppAdd()    { return D2D1::RectF(WORK_PAD_X + 352.0f, TOOLBAR_Y, WORK_RIGHT, TOOLBAR_Y + TOOLBAR_H); }
+
+D2D1_RECT_F RcDictInput()  { return D2D1::RectF(WORK_PAD_X, TOOLBAR_Y, WORK_PAD_X + 256.0f, TOOLBAR_Y + TOOLBAR_H); }
+D2D1_RECT_F RcDictLangEn() { return D2D1::RectF(WORK_PAD_X + 264.0f, TOOLBAR_Y, WORK_PAD_X + 304.0f, TOOLBAR_Y + TOOLBAR_H); }
+D2D1_RECT_F RcDictLangRu() { return D2D1::RectF(WORK_PAD_X + 304.0f, TOOLBAR_Y, WORK_PAD_X + 344.0f, TOOLBAR_Y + TOOLBAR_H); }
+D2D1_RECT_F RcDictAdd()    { return D2D1::RectF(WORK_PAD_X + 352.0f, TOOLBAR_Y, WORK_RIGHT, TOOLBAR_Y + TOOLBAR_H); }
 
 D2D1_RECT_F RcExclInput() { return D2D1::RectF(WORK_PAD_X, TOOLBAR_Y, WORK_PAD_X + 262.0f, TOOLBAR_Y + TOOLBAR_H); }
 D2D1_RECT_F RcExclPick()  { return D2D1::RectF(WORK_PAD_X + 270.0f, TOOLBAR_Y, WORK_PAD_X + 344.0f, TOOLBAR_Y + TOOLBAR_H); }
@@ -223,12 +229,14 @@ void SettingsWindow::RefreshSnapshot(bool snapAnimations) {
     if (snapAnimations) {
         toggleAnim_[0] = cfg_.autoSwitch ? 1.0f : 0.0f;
         toggleAnim_[1] = cfg_.capsLockSwitch ? 1.0f : 0.0f;
-        toggleAnim_[2] = cfg_.doubleCapsConvert ? 1.0f : 0.0f;
-        toggleAnim_[3] = cfg_.passwordGuard ? 1.0f : 0.0f;
-        toggleAnim_[4] = cfg_.autostart ? 1.0f : 0.0f;
+        toggleAnim_[2] = cfg_.capsHoldSwitch ? 1.0f : 0.0f;
+        toggleAnim_[3] = cfg_.doubleCapsConvert ? 1.0f : 0.0f;
+        toggleAnim_[4] = cfg_.passwordGuard ? 1.0f : 0.0f;
+        toggleAnim_[5] = cfg_.autostart ? 1.0f : 0.0f;
         statusPausedAnim_ = livePaused_ ? 1.0f : 0.0f;
         langChipRuAnim_ = liveIsRu_ ? 1.0f : 0.0f;
         langSelectorAnim_ = (selectedAppLayout_ == Config::AppLayout::Russian) ? 1.0f : 0.0f;
+        dictLangSelectorAnim_ = (selectedDictLayout_ == Config::AppLayout::Russian) ? 1.0f : 0.0f;
         pageTransition_ = 1.0f;
     }
 }
@@ -305,6 +313,8 @@ bool SettingsWindow::Create() {
 
     appInput_.rect = RcAppInput();
     appInput_.placeholder = L"telegram.exe";
+    dictInput_.rect = RcDictInput();
+    dictInput_.placeholder = L"слово (напр. спс или docker)";
     exclInput_.rect = RcExclInput();
     exclInput_.placeholder = L"cs2.exe";
 
@@ -356,6 +366,7 @@ void SettingsWindow::Hide() {
     FluentMenu::Instance().Hide();
     StopAnimation();
     appInput_.focused = false;
+    dictInput_.focused = false;
     exclInput_.focused = false;
     if (hWnd_ && IsWindow(hWnd_)) {
         ShowWindow(hWnd_, SW_HIDE);
@@ -417,6 +428,7 @@ void SettingsWindow::SwitchTab(SettingsTab nextTab) {
     activeTab_ = nextTab;
     pageTransition_ = 0.0f;
     appInput_.focused = false;
+    dictInput_.focused = false;
     exclInput_.focused = false;
     FluentMenu::Instance().Hide();
     EnsureAnimationRunning();
@@ -449,10 +461,10 @@ void SettingsWindow::TickAnimations(float dt) {
         val = next;
     };
 
-    const bool targets[5] = {
-        cfg_.autoSwitch, cfg_.capsLockSwitch, cfg_.doubleCapsConvert, cfg_.passwordGuard, cfg_.autostart
+    const bool targets[6] = {
+        cfg_.autoSwitch, cfg_.capsLockSwitch, cfg_.capsHoldSwitch, cfg_.doubleCapsConvert, cfg_.passwordGuard, cfg_.autostart
     };
-    for (int i = 0; i < 5; ++i) {
+    for (int i = 0; i < 6; ++i) {
         animTo(toggleAnim_[i], targets[i] ? 1.0f : 0.0f, 34.0f);
 
         bool rowHov = (activeTab_ == SettingsTab::General &&
@@ -464,7 +476,7 @@ void SettingsWindow::TickAnimations(float dt) {
         animTo(togglePress_[i], rowPrs ? 1.0f : 0.0f, 40.0f);
     }
 
-    for (int i = 0; i < 3; ++i) {
+    for (int i = 0; i < 4; ++i) {
         bool nHov = (hovered_.zone == static_cast<HitZone>(static_cast<int>(HitZone::NavGeneral) + i));
         animTo(navHover_[i], nHov ? 1.0f : 0.0f, 38.0f);
     }
@@ -481,20 +493,28 @@ void SettingsWindow::TickAnimations(float dt) {
     animTo(statusPausedAnim_, livePaused_ ? 1.0f : 0.0f, 28.0f);
     animTo(langChipRuAnim_, liveIsRu_ ? 1.0f : 0.0f, 30.0f);
     animTo(langSelectorAnim_, selectedAppLayout_ == Config::AppLayout::Russian ? 1.0f : 0.0f, 38.0f);
+    animTo(dictLangSelectorAnim_, selectedDictLayout_ == Config::AppLayout::Russian ? 1.0f : 0.0f, 38.0f);
 
     bool pickHov = (hovered_.zone == HitZone::AppPickBtn || hovered_.zone == HitZone::ExclPickBtn);
-    bool addHov = (hovered_.zone == HitZone::AppAddBtn || hovered_.zone == HitZone::ExclAddBtn);
+    bool addHov = (hovered_.zone == HitZone::AppAddBtn || hovered_.zone == HitZone::DictAddBtn || hovered_.zone == HitZone::ExclAddBtn);
     animTo(btnPickHover_, pickHov ? 1.0f : 0.0f, 38.0f);
     animTo(btnAddHover_, addHov ? 1.0f : 0.0f, 38.0f);
 
     animTo(appInput_.focusAnim, appInput_.focused ? 1.0f : 0.0f, 38.0f);
     animTo(appInput_.hoverAnim, appInput_.hovered ? 1.0f : 0.0f, 38.0f);
+    animTo(dictInput_.focusAnim, dictInput_.focused ? 1.0f : 0.0f, 38.0f);
+    animTo(dictInput_.hoverAnim, dictInput_.hovered ? 1.0f : 0.0f, 38.0f);
     animTo(exclInput_.focusAnim, exclInput_.focused ? 1.0f : 0.0f, 38.0f);
     animTo(exclInput_.hoverAnim, exclInput_.hovered ? 1.0f : 0.0f, 38.0f);
 
     if (appInput_.focused) {
         appInput_.caretPhase += dt * 1.9f;
         if (appInput_.caretPhase >= 2.0f) appInput_.caretPhase -= 2.0f;
+        needMore = true;
+    }
+    if (dictInput_.focused) {
+        dictInput_.caretPhase += dt * 1.9f;
+        if (dictInput_.caretPhase >= 2.0f) dictInput_.caretPhase -= 2.0f;
         needMore = true;
     }
     if (exclInput_.focused) {
@@ -506,6 +526,10 @@ void SettingsWindow::TickAnimations(float dt) {
     float maxAppScroll = (std::max)(0.0f, static_cast<float>(cfg_.appLayouts.size()) * APP_ROW_H + 8.0f - LIST_H);
     appScrollTarget_ = (std::clamp)(appScrollTarget_, 0.0f, maxAppScroll);
     animTo(appScrollY_, appScrollTarget_, 32.0f);
+
+    float maxDictScroll = (std::max)(0.0f, static_cast<float>(cfg_.wordDictionary.size()) * DICT_ROW_H + 8.0f - LIST_H);
+    dictScrollTarget_ = (std::clamp)(dictScrollTarget_, 0.0f, maxDictScroll);
+    animTo(dictScrollY_, dictScrollTarget_, 32.0f);
 
     float maxExclScroll = (std::max)(0.0f, static_cast<float>(cfg_.exclusions.size()) * EXCL_ROW_H + 8.0f - LIST_H);
     exclScrollTarget_ = (std::clamp)(exclScrollTarget_, 0.0f, maxExclScroll);
@@ -655,8 +679,74 @@ void SettingsWindow::RemoveExclusion(size_t index) {
     RequestRedraw();
 }
 
+void SettingsWindow::AutoSelectDictLayoutFromInput() {
+    bool hasCyr = false;
+    bool hasLat = false;
+    for (wchar_t ch : dictInput_.text) {
+        if ((ch >= L'а' && ch <= L'я') || (ch >= L'А' && ch <= L'Я') || ch == L'ё' || ch == L'Ё') {
+            hasCyr = true;
+            break;
+        }
+        if ((ch >= L'a' && ch <= L'z') || (ch >= L'A' && ch <= L'Z')) {
+            hasLat = true;
+        }
+    }
+    if (hasCyr) {
+        selectedDictLayout_ = Config::AppLayout::Russian;
+        EnsureAnimationRunning();
+    } else if (hasLat) {
+        selectedDictLayout_ = Config::AppLayout::English;
+        EnsureAnimationRunning();
+    }
+}
+
+void SettingsWindow::AddDictWordFromInput() {
+    if (dictInput_.text.empty()) return;
+    std::wstring word = dictInput_.text;
+    Config::AppLayout chosen = selectedDictLayout_;
+    Config::ConfigManager::Instance().Update([&word, chosen](Config::AppConfig& cfg) {
+        cfg.SetWordRule(word, chosen);
+    });
+    Config::ConfigManager::Instance().Save();
+    dictInput_.text.clear();
+    dictInput_.caretPos = 0;
+    dictInput_.selAnchor = 0;
+    dictInput_.scrollX = 0.0f;
+    RefreshSnapshot(false);
+    TriggerSavedToast();
+    RequestRedraw();
+}
+
+void SettingsWindow::ToggleDictWordLayout(size_t index) {
+    if (index >= cfg_.wordDictionary.size()) return;
+    std::wstring word = cfg_.wordDictionary[index].word;
+    Config::AppLayout next = (cfg_.wordDictionary[index].layout == Config::AppLayout::Russian)
+        ? Config::AppLayout::English
+        : Config::AppLayout::Russian;
+    Config::ConfigManager::Instance().Update([&word, next](Config::AppConfig& cfg) {
+        cfg.SetWordRule(word, next);
+    });
+    Config::ConfigManager::Instance().Save();
+    RefreshSnapshot(false);
+    TriggerSavedToast();
+    RequestRedraw();
+}
+
+void SettingsWindow::RemoveDictWord(size_t index) {
+    if (index >= cfg_.wordDictionary.size()) return;
+    std::wstring word = cfg_.wordDictionary[index].word;
+    Config::ConfigManager::Instance().Update([&word](Config::AppConfig& cfg) {
+        cfg.RemoveWordRule(word);
+    });
+    Config::ConfigManager::Instance().Save();
+    RefreshSnapshot(false);
+    TriggerSavedToast();
+    RequestRedraw();
+}
+
 FluentTextInput* SettingsWindow::ActiveTextInput() {
     if (activeTab_ == SettingsTab::AppLayouts && appInput_.focused) return &appInput_;
+    if (activeTab_ == SettingsTab::Dictionary && dictInput_.focused) return &dictInput_;
     if (activeTab_ == SettingsTab::Exclusions && exclInput_.focused) return &exclInput_;
     return nullptr;
 }
@@ -760,6 +850,7 @@ bool SettingsWindow::HandleInputKeyDown(FluentTextInput& input, WPARAM vk) {
         break;
     case VK_RETURN:
         if (&input == &appInput_) AddAppLayoutFromInput();
+        else if (&input == &dictInput_) AddDictWordFromInput();
         else AddExclusionFromInput();
         return true;
     case VK_ESCAPE:
@@ -815,6 +906,7 @@ bool SettingsWindow::HandleInputKeyDown(FluentTextInput& input, WPARAM vk) {
                 }
             }
             CloseClipboard();
+            if (&input == &dictInput_) AutoSelectDictLayoutFromInput();
             break;
         }
         return false;
@@ -844,6 +936,7 @@ bool SettingsWindow::HandleInputChar(FluentTextInput& input, wchar_t ch) {
     }
     input.ClearSelection();
     input.caretPhase = 0.0f;
+    if (&input == &dictInput_) AutoSelectDictLayoutFromInput();
     EnsureInputCaretVisible(input);
     RequestRedraw();
     return true;
@@ -856,11 +949,12 @@ SettingsWindow::HitResult SettingsWindow::HitTest(float dipX, float dipY) const 
 
     if (PointInRectF(RcNavItem(0), dipX, dipY))       return { HitZone::NavGeneral, -1 };
     if (PointInRectF(RcNavItem(1), dipX, dipY))       return { HitZone::NavAppLayouts, -1 };
-    if (PointInRectF(RcNavItem(2), dipX, dipY))       return { HitZone::NavExclusions, -1 };
+    if (PointInRectF(RcNavItem(2), dipX, dipY))       return { HitZone::NavDictionary, -1 };
+    if (PointInRectF(RcNavItem(3), dipX, dipY))       return { HitZone::NavExclusions, -1 };
     if (PointInRectF(RcFooterPauseBtn(), dipX, dipY)) return { HitZone::FooterPauseBtn, -1 };
 
     if (activeTab_ == SettingsTab::General) {
-        for (int i = 0; i < 5; ++i) {
+        for (int i = 0; i < 6; ++i) {
             if (PointInRectF(RcToggleRow(i), dipX, dipY)) {
                 return { static_cast<HitZone>(static_cast<int>(HitZone::ToggleRow0) + i), i };
             }
@@ -883,6 +977,25 @@ SettingsWindow::HitResult SettingsWindow::HitTest(float dipX, float dipY) const 
                 if (PointInRectF(delRc, dipX, dipY))   return { HitZone::AppRowDelete, row };
                 if (PointInRectF(badgeRc, dipX, dipY)) return { HitZone::AppRowBadge, row };
                 return { HitZone::AppRow, row };
+            }
+        }
+    } else if (activeTab_ == SettingsTab::Dictionary) {
+        if (PointInRectF(RcDictInput(), dipX, dipY))  return { HitZone::DictInput, -1 };
+        if (PointInRectF(RcDictLangEn(), dipX, dipY)) return { HitZone::DictLangEn, -1 };
+        if (PointInRectF(RcDictLangRu(), dipX, dipY)) return { HitZone::DictLangRu, -1 };
+        if (PointInRectF(RcDictAdd(), dipX, dipY))    return { HitZone::DictAddBtn, -1 };
+
+        D2D1_RECT_F listRc = RcListBox();
+        if (PointInRectF(listRc, dipX, dipY)) {
+            float relY = (dipY - listRc.top - 4.0f) + dictScrollY_;
+            int row = static_cast<int>(std::floor(relY / DICT_ROW_H));
+            if (relY >= 0.0f && row >= 0 && static_cast<size_t>(row) < cfg_.wordDictionary.size()) {
+                float rowY = listRc.top + 4.0f + row * DICT_ROW_H - dictScrollY_;
+                D2D1_RECT_F delRc = D2D1::RectF(listRc.right - 40.0f, rowY + 6.0f, listRc.right - 12.0f, rowY + DICT_ROW_H - 6.0f);
+                D2D1_RECT_F badgeRc = D2D1::RectF(listRc.right - 92.0f, rowY + 9.0f, listRc.right - 48.0f, rowY + DICT_ROW_H - 9.0f);
+                if (PointInRectF(delRc, dipX, dipY))   return { HitZone::DictRowDelete, row };
+                if (PointInRectF(badgeRc, dipX, dipY)) return { HitZone::DictRowBadge, row };
+                return { HitZone::DictRow, row };
             }
         }
     } else if (activeTab_ == SettingsTab::Exclusions) {
@@ -913,6 +1026,12 @@ void SettingsWindow::HandleMouseMove(float dipX, float dipY) {
         RequestRedraw();
         return;
     }
+    if (dictInput_.dragging) {
+        dictInput_.caretPos = HitTestTextCaret(dictInput_, dipX);
+        EnsureInputCaretVisible(dictInput_);
+        RequestRedraw();
+        return;
+    }
     if (exclInput_.dragging) {
         exclInput_.caretPos = HitTestTextCaret(exclInput_, dipX);
         EnsureInputCaretVisible(exclInput_);
@@ -922,12 +1041,14 @@ void SettingsWindow::HandleMouseMove(float dipX, float dipY) {
 
     HitResult hit = HitTest(dipX, dipY);
     bool appHov = (hit.zone == HitZone::AppInput);
+    bool dictHov = (hit.zone == HitZone::DictInput);
     bool exclHov = (hit.zone == HitZone::ExclInput);
 
     if (hit.zone != hovered_.zone || hit.index != hovered_.index ||
-        appHov != appInput_.hovered || exclHov != exclInput_.hovered) {
+        appHov != appInput_.hovered || dictHov != dictInput_.hovered || exclHov != exclInput_.hovered) {
         hovered_ = hit;
         appInput_.hovered = appHov;
+        dictInput_.hovered = dictHov;
         exclInput_.hovered = exclHov;
         EnsureAnimationRunning();
         RequestRedraw();
@@ -940,8 +1061,10 @@ void SettingsWindow::HandleMouseDown(float dipX, float dipY, bool doubleClick) {
     pressed_ = hit;
 
     bool prevAppFocus = appInput_.focused;
+    bool prevDictFocus = dictInput_.focused;
     bool prevExclFocus = exclInput_.focused;
     appInput_.focused = (hit.zone == HitZone::AppInput);
+    dictInput_.focused = (hit.zone == HitZone::DictInput);
     exclInput_.focused = (hit.zone == HitZone::ExclInput);
 
     if (appInput_.focused) {
@@ -956,6 +1079,18 @@ void SettingsWindow::HandleMouseDown(float dipX, float dipY, bool doubleClick) {
         }
         appInput_.caretPhase = 0.0f;
         EnsureInputCaretVisible(appInput_);
+    } else if (dictInput_.focused) {
+        if (doubleClick) {
+            dictInput_.selAnchor = 0;
+            dictInput_.caretPos = dictInput_.text.size();
+        } else {
+            dictInput_.caretPos = HitTestTextCaret(dictInput_, dipX);
+            if ((GetKeyState(VK_SHIFT) & 0x8000) == 0) dictInput_.ClearSelection();
+            dictInput_.dragging = true;
+            SetCapture(hWnd_);
+        }
+        dictInput_.caretPhase = 0.0f;
+        EnsureInputCaretVisible(dictInput_);
     } else if (exclInput_.focused) {
         if (doubleClick) {
             exclInput_.selAnchor = 0;
@@ -970,17 +1105,21 @@ void SettingsWindow::HandleMouseDown(float dipX, float dipY, bool doubleClick) {
         EnsureInputCaretVisible(exclInput_);
     } else if (doubleClick && hit.zone == HitZone::AppRow && hit.index >= 0) {
         ToggleAppRuleLayout(static_cast<size_t>(hit.index));
+    } else if (doubleClick && hit.zone == HitZone::DictRow && hit.index >= 0) {
+        ToggleDictWordLayout(static_cast<size_t>(hit.index));
     }
 
-    if (prevAppFocus != appInput_.focused || prevExclFocus != exclInput_.focused || hit.zone != HitZone::None) {
+    if (prevAppFocus != appInput_.focused || prevDictFocus != dictInput_.focused ||
+        prevExclFocus != exclInput_.focused || hit.zone != HitZone::None) {
         EnsureAnimationRunning();
         RequestRedraw();
     }
 }
 
 void SettingsWindow::HandleMouseUp(float dipX, float dipY) {
-    if (appInput_.dragging || exclInput_.dragging) {
+    if (appInput_.dragging || dictInput_.dragging || exclInput_.dragging) {
         appInput_.dragging = false;
+        dictInput_.dragging = false;
         exclInput_.dragging = false;
         ReleaseCapture();
     }
@@ -1012,6 +1151,9 @@ void SettingsWindow::HandleMouseUp(float dipX, float dipY) {
     case HitZone::NavAppLayouts:
         SwitchTab(SettingsTab::AppLayouts);
         return;
+    case HitZone::NavDictionary:
+        SwitchTab(SettingsTab::Dictionary);
+        return;
     case HitZone::NavExclusions:
         SwitchTab(SettingsTab::Exclusions);
         return;
@@ -1022,14 +1164,16 @@ void SettingsWindow::HandleMouseUp(float dipX, float dipY) {
     case HitZone::ToggleRow1:
     case HitZone::ToggleRow2:
     case HitZone::ToggleRow3:
-    case HitZone::ToggleRow4: {
+    case HitZone::ToggleRow4:
+    case HitZone::ToggleRow5: {
         int idx = hit.index;
         Config::ConfigManager::Instance().Update([idx](Config::AppConfig& cfg) {
             if (idx == 0) cfg.autoSwitch = !cfg.autoSwitch;
             else if (idx == 1) cfg.capsLockSwitch = !cfg.capsLockSwitch;
-            else if (idx == 2) cfg.doubleCapsConvert = !cfg.doubleCapsConvert;
-            else if (idx == 3) cfg.passwordGuard = !cfg.passwordGuard;
-            else if (idx == 4) cfg.autostart = !cfg.autostart;
+            else if (idx == 2) cfg.capsHoldSwitch = !cfg.capsHoldSwitch;
+            else if (idx == 3) cfg.doubleCapsConvert = !cfg.doubleCapsConvert;
+            else if (idx == 4) cfg.passwordGuard = !cfg.passwordGuard;
+            else if (idx == 5) cfg.autostart = !cfg.autostart;
         });
         Config::ConfigManager::Instance().Save();
         RefreshSnapshot(false);
@@ -1059,6 +1203,25 @@ void SettingsWindow::HandleMouseUp(float dipX, float dipY) {
     case HitZone::AppRowDelete:
         if (hit.index >= 0) RemoveAppRule(static_cast<size_t>(hit.index));
         return;
+    case HitZone::DictLangEn:
+        selectedDictLayout_ = Config::AppLayout::English;
+        EnsureAnimationRunning();
+        RequestRedraw();
+        return;
+    case HitZone::DictLangRu:
+        selectedDictLayout_ = Config::AppLayout::Russian;
+        EnsureAnimationRunning();
+        RequestRedraw();
+        return;
+    case HitZone::DictAddBtn:
+        AddDictWordFromInput();
+        return;
+    case HitZone::DictRowBadge:
+        if (hit.index >= 0) ToggleDictWordLayout(static_cast<size_t>(hit.index));
+        return;
+    case HitZone::DictRowDelete:
+        if (hit.index >= 0) RemoveDictWord(static_cast<size_t>(hit.index));
+        return;
     case HitZone::ExclPickBtn:
         ShowAppPickerMenu(RcExclPick(), false);
         return;
@@ -1082,6 +1245,11 @@ void SettingsWindow::HandleMouseWheel(short delta, float dipX, float dipY) {
     if (activeTab_ == SettingsTab::AppLayouts) {
         float maxScroll = (std::max)(0.0f, static_cast<float>(cfg_.appLayouts.size()) * APP_ROW_H + 8.0f - LIST_H);
         appScrollTarget_ = (std::clamp)(appScrollTarget_ + step, 0.0f, maxScroll);
+        EnsureAnimationRunning();
+        RequestRedraw();
+    } else if (activeTab_ == SettingsTab::Dictionary) {
+        float maxScroll = (std::max)(0.0f, static_cast<float>(cfg_.wordDictionary.size()) * DICT_ROW_H + 8.0f - LIST_H);
+        dictScrollTarget_ = (std::clamp)(dictScrollTarget_ + step, 0.0f, maxScroll);
         EnsureAnimationRunning();
         RequestRedraw();
     } else if (activeTab_ == SettingsTab::Exclusions) {
@@ -1125,13 +1293,14 @@ void SettingsWindow::DrawNavigationRail(ID2D1RenderTarget* rt, const FluentPalet
         const wchar_t* label;
         int count;
     };
-    const NavDef navs[3] = {
+    const NavDef navs[4] = {
         { FluentIcon::Overview, L"Обзор", -1 },
         { FluentIcon::Apps, L"Приложения", static_cast<int>(cfg_.appLayouts.size()) },
+        { FluentIcon::Book, L"Словарь", static_cast<int>(cfg_.wordDictionary.size()) },
         { FluentIcon::Block, L"Исключения", static_cast<int>(cfg_.exclusions.size()) }
     };
 
-    for (int i = 0; i < 3; ++i) {
+    for (int i = 0; i < 4; ++i) {
         D2D1_RECT_F rc = RcNavItem(i);
         bool selected = (static_cast<int>(activeTab_) == i);
         float hov = navHover_[i];
@@ -1246,6 +1415,7 @@ void SettingsWindow::DrawCaptionButtons(ID2D1RenderTarget* rt, const FluentPalet
 void SettingsWindow::DrawPageHeader(ID2D1RenderTarget* rt, const FluentPalette& pal, ID2D1SolidColorBrush* brush, float offsetY, float alpha) {
     const wchar_t* title = L"Обзор";
     if (activeTab_ == SettingsTab::AppLayouts) title = L"Приложения";
+    else if (activeTab_ == SettingsTab::Dictionary) title = L"Словарь";
     else if (activeTab_ == SettingsTab::Exclusions) title = L"Исключения";
 
     if (fmtPageTitle_) {
@@ -1267,13 +1437,13 @@ void SettingsWindow::DrawPageHeader(ID2D1RenderTarget* rt, const FluentPalette& 
 
 void SettingsWindow::DrawGeneralPage(ID2D1RenderTarget* rt, const FluentPalette& pal, ID2D1SolidColorBrush* brush, float offsetY, float alpha) {
     // 1. Status Hero Banner
-    D2D1_RECT_F bannerRc = ShiftRectY(D2D1::RectF(WORK_PAD_X, 74.0f, WORK_RIGHT, 134.0f), offsetY);
+    D2D1_RECT_F bannerRc = ShiftRectY(D2D1::RectF(WORK_PAD_X, 74.0f, WORK_RIGHT, 130.0f), offsetY);
     D2D1_COLOR_F bannerBg = LerpColor(pal.bannerBg, pal.bannerPausedBg, statusPausedAnim_);
     brush->SetColor(FadeColor(bannerBg, alpha));
     rt->FillRoundedRectangle(D2D1::RoundedRect(bannerRc, 10.0f, 10.0f), brush);
 
     // Left squircle icon box
-    D2D1_RECT_F sqRc = D2D1::RectF(bannerRc.left + 14.0f, bannerRc.top + 12.0f, bannerRc.left + 50.0f, bannerRc.top + 48.0f);
+    D2D1_RECT_F sqRc = D2D1::RectF(bannerRc.left + 14.0f, bannerRc.top + 10.0f, bannerRc.left + 50.0f, bannerRc.top + 46.0f);
     brush->SetColor(FadeColor(pal.bannerIconBoxBg, alpha));
     rt->FillRoundedRectangle(D2D1::RoundedRect(sqRc, 8.0f, 8.0f), brush);
     brush->SetColor(FadeColor(pal.borderSubtle, alpha));
@@ -1284,24 +1454,25 @@ void SettingsWindow::DrawGeneralPage(ID2D1RenderTarget* rt, const FluentPalette&
         FadeColor(livePaused_ ? pal.statusPaused : pal.navSelectedFg, alpha), 1.5f, brush);
 
     int activeCount = (cfg_.autoSwitch ? 1 : 0) + (cfg_.capsLockSwitch ? 1 : 0)
-        + (cfg_.doubleCapsConvert ? 1 : 0) + (cfg_.passwordGuard ? 1 : 0) + (cfg_.autostart ? 1 : 0);
+        + (cfg_.capsHoldSwitch ? 1 : 0) + (cfg_.doubleCapsConvert ? 1 : 0)
+        + (cfg_.passwordGuard ? 1 : 0) + (cfg_.autostart ? 1 : 0);
 
     if (fmtRowTitle_) {
         const wchar_t* bannerTitle = livePaused_ ? L"Переключение на паузе" : L"CapsSwitch активен";
         brush->SetColor(WithAlpha(pal.textPrimary, alpha));
         rt->DrawText(bannerTitle, static_cast<UINT32>(wcslen(bannerTitle)), fmtRowTitle_,
-            D2D1::RectF(bannerRc.left + 64.0f, bannerRc.top + 12.0f, bannerRc.right - 64.0f, bannerRc.top + 31.0f), brush);
+            D2D1::RectF(bannerRc.left + 64.0f, bannerRc.top + 10.0f, bannerRc.right - 64.0f, bannerRc.top + 29.0f), brush);
     }
     if (fmtRowSub_) {
         std::wstring bannerSub = livePaused_
             ? L"Нажмите «Возобновить» внизу"
-            : (L"Активно модулей: " + std::to_wstring(activeCount) + L" из 5");
+            : (L"Активно модулей: " + std::to_wstring(activeCount) + L" из 6");
         brush->SetColor(FadeColor(pal.textSecondary, alpha));
         rt->DrawText(bannerSub.c_str(), static_cast<UINT32>(bannerSub.size()), fmtRowSub_,
-            D2D1::RectF(bannerRc.left + 64.0f, bannerRc.top + 31.0f, bannerRc.right - 64.0f, bannerRc.top + 49.0f), brush);
+            D2D1::RectF(bannerRc.left + 64.0f, bannerRc.top + 29.0f, bannerRc.right - 64.0f, bannerRc.top + 47.0f), brush);
     }
 
-    D2D1_RECT_F langPillRc = D2D1::RectF(bannerRc.right - 52.0f, bannerRc.top + 18.0f, bannerRc.right - 14.0f, bannerRc.top + 42.0f);
+    D2D1_RECT_F langPillRc = D2D1::RectF(bannerRc.right - 52.0f, bannerRc.top + 16.0f, bannerRc.right - 14.0f, bannerRc.top + 40.0f);
     brush->SetColor(FadeColor(pal.bannerIconBoxBg, alpha));
     rt->FillRoundedRectangle(D2D1::RoundedRect(langPillRc, 6.0f, 6.0f), brush);
     brush->SetColor(FadeColor(pal.borderSubtle, alpha));
@@ -1315,9 +1486,9 @@ void SettingsWindow::DrawGeneralPage(ID2D1RenderTarget* rt, const FluentPalette&
     if (fmtGroupLabel_) {
         brush->SetColor(WithAlpha(pal.textPrimary, alpha));
         rt->DrawText(L"Управление", 10, fmtGroupLabel_,
-            ShiftRectY(D2D1::RectF(WORK_PAD_X, 148.0f, WORK_RIGHT, 170.0f), offsetY), brush);
+            ShiftRectY(D2D1::RectF(WORK_PAD_X, 142.0f, WORK_RIGHT, 164.0f), offsetY), brush);
         rt->DrawText(L"Система и защита", 16, fmtGroupLabel_,
-            ShiftRectY(D2D1::RectF(WORK_PAD_X, 344.0f, WORK_RIGHT, 366.0f), offsetY), brush);
+            ShiftRectY(D2D1::RectF(WORK_PAD_X, 372.0f, WORK_RIGHT, 394.0f), offsetY), brush);
     }
 
     // 3. Flat settings rows with hairline dividers
@@ -1326,11 +1497,13 @@ void SettingsWindow::DrawGeneralPage(ID2D1RenderTarget* rt, const FluentPalette&
         const wchar_t* title;
         const wchar_t* subtitle;
     };
-    const RowDef rows[5] = {
+    const RowDef rows[6] = {
         { FluentIcon::AutoSwitch, L"Автопереключение раскладки",
-          L"Исправление слова при ошибочной раскладке" },
+          L"Исправление слов и работа пользовательского словаря" },
         { FluentIcon::CapsLock, L"Переключение по Caps Lock",
-          L"Циклическая смена RU ⇄ EN без фиксации регистра" },
+          L"Короткое нажатие — RU ⇄ EN; Win + Caps — Caps Lock" },
+        { FluentIcon::Swap, L"Удержание Caps Lock (с Shift)",
+          L"Смена раскладки пока зажат Caps, возврат при отпускании" },
         { FluentIcon::DoubleCaps, L"Перевод по 2× Caps Lock",
           L"Конвертация выделенного или последнего слова" },
         { FluentIcon::Shield, L"Защита полей паролей",
@@ -1339,7 +1512,7 @@ void SettingsWindow::DrawGeneralPage(ID2D1RenderTarget* rt, const FluentPalette&
           L"Запуск при входе в систему" }
     };
 
-    for (int i = 0; i < 5; ++i) {
+    for (int i = 0; i < 6; ++i) {
         D2D1_RECT_F rc = ShiftRectY(RcToggleRow(i), offsetY);
         float hov = rowHover_[i];
         float prs = togglePress_[i];
@@ -1352,25 +1525,25 @@ void SettingsWindow::DrawGeneralPage(ID2D1RenderTarget* rt, const FluentPalette&
             rt->FillRoundedRectangle(D2D1::RoundedRect(hovRc, 8.0f, 8.0f), brush);
         }
 
-        if (i == 0 || i == 1 || i == 3) {
+        if (i == 0 || i == 1 || i == 2 || i == 4) {
             brush->SetColor(FadeColor(pal.divider, alpha));
             rt->DrawLine(D2D1::Point2F(WORK_PAD_X, rc.bottom), D2D1::Point2F(WORK_RIGHT, rc.bottom), brush, 1.0f);
         }
 
         D2D1_COLOR_F iconCol = LerpColor(pal.textSecondary, pal.textPrimary, hov * 0.6f);
         DrawFluentIcon(rt, rows[i].icon,
-            D2D1::RectF(WORK_PAD_X + 2.0f, rc.top + 18.0f, WORK_PAD_X + 18.0f, rc.top + 34.0f),
+            D2D1::RectF(WORK_PAD_X + 2.0f, rc.top + 16.0f, WORK_PAD_X + 18.0f, rc.top + 32.0f),
             FadeColor(iconCol, alpha), 1.4f, brush);
 
         if (fmtRowTitle_) {
             brush->SetColor(WithAlpha(pal.textPrimary, alpha));
             rt->DrawText(rows[i].title, static_cast<UINT32>(wcslen(rows[i].title)), fmtRowTitle_,
-                D2D1::RectF(WORK_PAD_X + 32.0f, rc.top + 8.0f, WORK_RIGHT - 56.0f, rc.top + 27.0f), brush);
+                D2D1::RectF(WORK_PAD_X + 32.0f, rc.top + 6.0f, WORK_RIGHT - 56.0f, rc.top + 25.0f), brush);
         }
         if (fmtRowSub_) {
             brush->SetColor(FadeColor(pal.textSecondary, alpha));
             rt->DrawText(rows[i].subtitle, static_cast<UINT32>(wcslen(rows[i].subtitle)), fmtRowSub_,
-                D2D1::RectF(WORK_PAD_X + 32.0f, rc.top + 28.0f, WORK_RIGHT - 56.0f, rc.top + 45.0f), brush);
+                D2D1::RectF(WORK_PAD_X + 32.0f, rc.top + 26.0f, WORK_RIGHT - 56.0f, rc.top + 43.0f), brush);
         }
 
         // Clean 38x20 ToggleSwitch without text label
@@ -1664,6 +1837,149 @@ void SettingsWindow::DrawAppLayoutsPage(ID2D1RenderTarget* rt, const FluentPalet
     rt->PopAxisAlignedClip();
 }
 
+void SettingsWindow::DrawDictionaryPage(ID2D1RenderTarget* rt, const FluentPalette& pal, ID2D1SolidColorBrush* brush, float offsetY, float alpha) {
+    DrawTextInput(rt, pal, brush, dictInput_, offsetY, alpha);
+
+    // Calm tinted EN / RU segmented toggle
+    D2D1_RECT_F rcEn = ShiftRectY(RcDictLangEn(), offsetY);
+    D2D1_RECT_F rcRu = ShiftRectY(RcDictLangRu(), offsetY);
+    D2D1_RECT_F segRc = D2D1::RectF(rcEn.left, rcEn.top, rcRu.right, rcRu.bottom);
+    brush->SetColor(FadeColor(pal.inputBg, alpha));
+    rt->FillRoundedRectangle(D2D1::RoundedRect(segRc, 7.0f, 7.0f), brush);
+    brush->SetColor(FadeColor(pal.borderSubtle, alpha));
+    rt->DrawRoundedRectangle(D2D1::RoundedRect(segRc, 7.0f, 7.0f), brush, 1.0f);
+
+    float segW = rcEn.right - rcEn.left;
+    float pillX = Lerp(rcEn.left + 2.5f, rcRu.left + 2.5f, dictLangSelectorAnim_);
+    D2D1_COLOR_F pillBg = LerpColor(pal.langEnSoft, pal.langRuSoft, dictLangSelectorAnim_);
+    D2D1_COLOR_F pillBrd = LerpColor(pal.langEnFill, pal.langRuFill, dictLangSelectorAnim_);
+    D2D1_RECT_F pillRc = D2D1::RectF(pillX, segRc.top + 2.5f, pillX + segW - 5.0f, segRc.bottom - 2.5f);
+    brush->SetColor(FadeColor(pillBg, alpha));
+    rt->FillRoundedRectangle(D2D1::RoundedRect(pillRc, 5.0f, 5.0f), brush);
+    brush->SetColor(WithAlpha(pillBrd, 0.35f * alpha));
+    rt->DrawRoundedRectangle(D2D1::RoundedRect(pillRc, 5.0f, 5.0f), brush, 1.0f);
+
+    if (fmtBadge_) {
+        brush->SetColor(WithAlpha(LerpColor(pal.langEnFill, pal.textSecondary, dictLangSelectorAnim_), alpha));
+        rt->DrawText(L"EN", 2, fmtBadge_, rcEn, brush);
+        brush->SetColor(WithAlpha(LerpColor(pal.textSecondary, pal.langRuFill, dictLangSelectorAnim_), alpha));
+        rt->DrawText(L"RU", 2, fmtBadge_, rcRu, brush);
+    }
+
+    DrawFluentButton(rt, pal, brush, ShiftRectY(RcDictAdd(), offsetY), L"Добавить", FluentIcon::None,
+        true, hovered_.zone == HitZone::DictAddBtn ? btnAddHover_ : 0.0f,
+        pressed_.zone == HitZone::DictAddBtn, alpha);
+
+    D2D1_RECT_F listRc = ShiftRectY(RcListBox(), offsetY);
+    brush->SetColor(FadeColor(pal.workspaceBg, alpha));
+    rt->FillRoundedRectangle(D2D1::RoundedRect(listRc, 10.0f, 10.0f), brush);
+    brush->SetColor(FadeColor(pal.borderSubtle, alpha));
+    rt->DrawRoundedRectangle(D2D1::RoundedRect(listRc, 10.0f, 10.0f), brush, 1.0f);
+
+    rt->PushAxisAlignedClip(D2D1::RectF(listRc.left + 1.0f, listRc.top + 1.0f, listRc.right - 1.0f, listRc.bottom - 1.0f),
+        D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+
+    if (cfg_.wordDictionary.empty()) {
+        if (fmtRowTitle_) {
+            fmtRowTitle_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+            brush->SetColor(FadeColor(pal.textSecondary, alpha));
+            const wchar_t* emptyT = L"Словарь пуст";
+            rt->DrawText(emptyT, static_cast<UINT32>(wcslen(emptyT)), fmtRowTitle_,
+                D2D1::RectF(listRc.left + 20.0f, listRc.top + 160.0f, listRc.right - 20.0f, listRc.top + 182.0f), brush);
+            fmtRowTitle_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+        }
+        if (fmtRowSub_) {
+            fmtRowSub_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+            brush->SetColor(FadeColor(pal.textTertiary, alpha));
+            const wchar_t* emptyS = L"Введите слово и выберите целевую раскладку";
+            rt->DrawText(emptyS, static_cast<UINT32>(wcslen(emptyS)), fmtRowSub_,
+                D2D1::RectF(listRc.left + 20.0f, listRc.top + 184.0f, listRc.right - 20.0f, listRc.top + 204.0f), brush);
+            fmtRowSub_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+        }
+    } else {
+        auto& le = Core::LayoutEngine::Instance();
+        for (size_t i = 0; i < cfg_.wordDictionary.size(); ++i) {
+            float rowY = listRc.top + 4.0f + static_cast<float>(i) * DICT_ROW_H - dictScrollY_;
+            if (rowY + DICT_ROW_H < listRc.top || rowY > listRc.bottom) continue;
+
+            const auto& rule = cfg_.wordDictionary[i];
+            bool rowHov = (hovered_.index == static_cast<int>(i) &&
+                (hovered_.zone == HitZone::DictRow || hovered_.zone == HitZone::DictRowBadge || hovered_.zone == HitZone::DictRowDelete));
+
+            D2D1_RECT_F rowRc = D2D1::RectF(listRc.left + 4.0f, rowY + 2.0f, listRc.right - 8.0f, rowY + DICT_ROW_H - 2.0f);
+            if (rowHov) {
+                brush->SetColor(FadeColor(pal.rowHoverBg, alpha));
+                rt->FillRoundedRectangle(D2D1::RoundedRect(rowRc, 6.0f, 6.0f), brush);
+            }
+            if (i + 1 < cfg_.wordDictionary.size()) {
+                brush->SetColor(FadeColor(pal.divider, alpha));
+                rt->DrawLine(D2D1::Point2F(listRc.left + 14.0f, rowY + DICT_ROW_H), D2D1::Point2F(listRc.right - 14.0f, rowY + DICT_ROW_H), brush, 1.0f);
+            }
+
+            bool isRu = (rule.layout == Config::AppLayout::Russian);
+            bool hasCyr = false;
+            for (wchar_t ch : rule.word) {
+                if ((ch >= L'а' && ch <= L'я') || (ch >= L'А' && ch <= L'Я') || ch == L'ё' || ch == L'Ё') {
+                    hasCyr = true;
+                    break;
+                }
+            }
+            std::wstring targetDisp = rule.word;
+            std::wstring triggerDisp;
+            if (isRu) {
+                if (hasCyr) {
+                    triggerDisp = Platform::ToLower(le.RuToEn(rule.word));
+                } else {
+                    triggerDisp = rule.word;
+                    targetDisp = Platform::ToLower(le.EnToRu(rule.word));
+                }
+            } else {
+                if (!hasCyr) {
+                    triggerDisp = Platform::ToLower(le.EnToRu(rule.word));
+                } else {
+                    triggerDisp = rule.word;
+                    targetDisp = Platform::ToLower(le.RuToEn(rule.word));
+                }
+            }
+            std::wstring subText = triggerDisp + L" \u2192 " + targetDisp;
+
+            if (fmtRowTitle_) {
+                brush->SetColor(WithAlpha(pal.textPrimary, alpha));
+                rt->DrawText(targetDisp.c_str(), static_cast<UINT32>(targetDisp.size()), fmtRowTitle_,
+                    D2D1::RectF(rowRc.left + 12.0f, rowY + 4.0f, rowRc.right - 96.0f, rowY + 24.0f), brush);
+            }
+            if (fmtRowSub_) {
+                brush->SetColor(FadeColor(pal.textSecondary, alpha));
+                rt->DrawText(subText.c_str(), static_cast<UINT32>(subText.size()), fmtRowSub_,
+                    D2D1::RectF(rowRc.left + 12.0f, rowY + 25.0f, rowRc.right - 96.0f, rowY + 42.0f), brush);
+            }
+
+            D2D1_RECT_F badgeRc = D2D1::RectF(listRc.right - 92.0f, rowY + 12.0f, listRc.right - 48.0f, rowY + DICT_ROW_H - 12.0f);
+            brush->SetColor(FadeColor(isRu ? pal.langRuSoft : pal.langEnSoft, alpha));
+            rt->FillRoundedRectangle(D2D1::RoundedRect(badgeRc, 6.0f, 6.0f), brush);
+            if (fmtBadge_) {
+                brush->SetColor(WithAlpha(isRu ? pal.langRuFill : pal.langEnFill, alpha));
+                rt->DrawText(isRu ? L"RU" : L"EN", 2, fmtBadge_, badgeRc, brush);
+            }
+
+            D2D1_RECT_F delRc = D2D1::RectF(listRc.right - 40.0f, rowY + 9.0f, listRc.right - 12.0f, rowY + DICT_ROW_H - 9.0f);
+            bool delHov = (hovered_.zone == HitZone::DictRowDelete && hovered_.index == static_cast<int>(i));
+            if (delHov) {
+                brush->SetColor(FadeColor(pal.dangerSoft, alpha));
+                rt->FillRoundedRectangle(D2D1::RoundedRect(delRc, 6.0f, 6.0f), brush);
+            }
+            D2D1_COLOR_F delCol = delHov ? pal.danger : (rowHov ? pal.textSecondary : pal.textTertiary);
+            DrawFluentIcon(rt, FluentIcon::Trash,
+                D2D1::RectF(delRc.left + 7.5f, delRc.top + 8.5f, delRc.right - 7.5f, delRc.bottom - 8.5f),
+                FadeColor(delCol, alpha), 1.4f, brush);
+        }
+
+        DrawScrollbar(rt, pal, brush, listRc, dictScrollY_, static_cast<float>(cfg_.wordDictionary.size()) * DICT_ROW_H + 8.0f, alpha);
+    }
+
+    rt->PopAxisAlignedClip();
+}
+
 void SettingsWindow::DrawExclusionsPage(ID2D1RenderTarget* rt, const FluentPalette& pal, ID2D1SolidColorBrush* brush, float offsetY, float alpha) {
     DrawTextInput(rt, pal, brush, exclInput_, offsetY, alpha);
 
@@ -1779,12 +2095,14 @@ void SettingsWindow::RenderNow(HDC fallbackDstDC) {
             if (outAlpha > 0.01f) {
                 if (prevTab_ == SettingsTab::General) DrawGeneralPage(rt, pal, brush, outOffsetY, outAlpha);
                 else if (prevTab_ == SettingsTab::AppLayouts) DrawAppLayoutsPage(rt, pal, brush, outOffsetY, outAlpha);
+                else if (prevTab_ == SettingsTab::Dictionary) DrawDictionaryPage(rt, pal, brush, outOffsetY, outAlpha);
                 else DrawExclusionsPage(rt, pal, brush, outOffsetY, outAlpha);
             }
         }
 
         if (activeTab_ == SettingsTab::General) DrawGeneralPage(rt, pal, brush, inOffsetY, inAlpha);
         else if (activeTab_ == SettingsTab::AppLayouts) DrawAppLayoutsPage(rt, pal, brush, inOffsetY, inAlpha);
+        else if (activeTab_ == SettingsTab::Dictionary) DrawDictionaryPage(rt, pal, brush, inOffsetY, inAlpha);
         else DrawExclusionsPage(rt, pal, brush, inOffsetY, inAlpha);
 
         rt->PopAxisAlignedClip();
@@ -1870,9 +2188,10 @@ LRESULT SettingsWindow::HandleMessage(HWND hWnd, UINT msg, WPARAM wParam, LPARAM
     }
     case WM_MOUSELEAVE: {
         trackingMouse_ = false;
-        if (hovered_.zone != HitZone::None || appInput_.hovered || exclInput_.hovered) {
+        if (hovered_.zone != HitZone::None || appInput_.hovered || dictInput_.hovered || exclInput_.hovered) {
             hovered_ = {};
             appInput_.hovered = false;
+            dictInput_.hovered = false;
             exclInput_.hovered = false;
             EnsureAnimationRunning();
             RequestRedraw();

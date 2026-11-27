@@ -207,6 +207,33 @@ WORD LayoutEngine::GetLayout(HWND hwnd) {
     return ExtractLangId(currentHkl);
 }
 
+bool LayoutEngine::QuickRequestSwitchLayout(HWND hwnd, WORD targetLang) {
+    if (!hklRu_ || !hklEn_) {
+        RefreshLayouts();
+    }
+    if (!hwnd) hwnd = GetForegroundWindow();
+    if (!hwnd) return false;
+
+    HKL targetHkl = ((targetLang & 0xFF) == 0x19) ? hklRu_ : hklEn_;
+    if (!targetHkl) return false;
+
+    DWORD threadId = GetWindowThreadProcessId(hwnd, nullptr);
+    HWND focusWnd = hwnd;
+    if (threadId) {
+        GUITHREADINFO gti = {};
+        gti.cbSize = sizeof(GUITHREADINFO);
+        if (GetGUIThreadInfo(threadId, &gti) && gti.hwndFocus) {
+            focusWnd = gti.hwndFocus;
+        }
+    }
+
+    PostMessageW(focusWnd, WM_INPUTLANGCHANGEREQUEST, 0, reinterpret_cast<LPARAM>(targetHkl));
+    if (focusWnd != hwnd) {
+        PostMessageW(hwnd, WM_INPUTLANGCHANGEREQUEST, 0, reinterpret_cast<LPARAM>(targetHkl));
+    }
+    return true;
+}
+
 bool LayoutEngine::SwitchLayout(HWND hwnd, WORD targetLang) {
     if (!hklRu_ || !hklEn_) {
         RefreshLayouts();
@@ -265,7 +292,10 @@ bool LayoutEngine::SwitchLayout(HWND hwnd, WORD targetLang) {
             auto simulateHotkey = [&](DWORD type) {
                 SimulatingInputGuard guard(s_simulatingInput);
                 std::vector<INPUT> inputs;
-                inputs.reserve(8);
+                inputs.reserve(12);
+
+                bool lShiftHeld = (GetAsyncKeyState(VK_LSHIFT) & 0x8000) != 0;
+                bool rShiftHeld = (GetAsyncKeyState(VK_RSHIFT) & 0x8000) != 0;
 
                 // Release held Shift or Space first so Alt+Space system menu is never triggered
                 AppendKeyReleaseIfDown(inputs, VK_LSHIFT, 0x2A);
@@ -284,6 +314,16 @@ bool LayoutEngine::SwitchLayout(HWND hwnd, WORD targetLang) {
                 inputs.push_back(d2);
                 inputs.push_back(u1);
                 inputs.push_back(u2);
+
+                // Restore physically held Shift keys so Shift + Caps Lock remains active
+                if (lShiftHeld) {
+                    INPUT rs = {}; rs.type = INPUT_KEYBOARD; rs.ki.wVk = VK_LSHIFT; rs.ki.wScan = 0x2A;
+                    inputs.push_back(rs);
+                }
+                if (rShiftHeld) {
+                    INPUT rs = {}; rs.type = INPUT_KEYBOARD; rs.ki.wVk = VK_RSHIFT; rs.ki.wScan = 0x36;
+                    inputs.push_back(rs);
+                }
 
                 SendInput(static_cast<UINT>(inputs.size()), inputs.data(), sizeof(INPUT));
             };

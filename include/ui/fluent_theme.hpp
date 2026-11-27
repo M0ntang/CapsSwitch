@@ -28,6 +28,7 @@ enum class FluentIcon {
     Shield,
     Rocket,
     Apps,
+    Book,
     Block,
     Pause,
     Play,

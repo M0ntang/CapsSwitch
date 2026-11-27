@@ -1,5 +1,6 @@
 #include "core/detector.hpp"
 #include "core/layout_engine.hpp"
+#include "config/config.hpp"
 #include "platform/win32_utils.hpp"
 #include <unordered_set>
 #include <algorithm>
@@ -39,6 +40,11 @@ bool IsTrailingPunct(wchar_t ch) {
     return ch == L'.' || ch == L',' || ch == L';' || ch == L':' ||
            ch == L'!' || ch == L'?' || ch == L'/' || ch == L'&' ||
            ch == L'^' || ch == L'$';
+}
+
+bool IsEnPunctOnRuLayout(wchar_t ch) {
+    return ch == L'!' || ch == L'?' || ch == L'/' ||
+           ch == L'&' || ch == L'^' || ch == L'$';
 }
 
 bool IsRuLayoutChar(wchar_t ch) {
@@ -438,6 +444,62 @@ bool Detector::IsCommonEnglishWord(const std::wstring& word) const {
     return s_commonEnWords.find(Platform::ToLower(word)) != s_commonEnWords.end();
 }
 
+void Detector::SyncCustomDictionaryLocked() {
+    uint64_t ver = Config::ConfigManager::Instance().GetWordDictionaryVersion();
+    if (ver == cachedWordDictVersion_) {
+        return;
+    }
+    cachedWordDictVersion_ = ver;
+
+    customEnToRuTriggers_.clear();
+    customRuToEnTriggers_.clear();
+    customRuProtected_.clear();
+    customEnProtected_.clear();
+
+    auto rules = Config::ConfigManager::Instance().GetWordDictionarySnapshot();
+    for (const auto& rule : rules) {
+        std::wstring w = Platform::ToLower(rule.word);
+        if (w.empty()) continue;
+
+        bool hasCyr = false;
+        bool hasLat = false;
+        for (wchar_t ch : w) {
+            if (IsCyrillicLetter(ch)) hasCyr = true;
+            else if (IsLatinLetter(ch)) hasLat = true;
+        }
+
+        if (rule.layout == Config::AppLayout::Russian) {
+            if (hasCyr) {
+                customRuProtected_.insert(w);
+                std::wstring trig = Platform::ToLower(LayoutEngine::Instance().RuToEn(w));
+                if (!trig.empty() && trig != w) {
+                    customEnToRuTriggers_.insert(trig);
+                }
+            } else {
+                customEnToRuTriggers_.insert(w);
+                std::wstring tgt = Platform::ToLower(LayoutEngine::Instance().EnToRu(w));
+                if (!tgt.empty() && tgt != w) {
+                    customRuProtected_.insert(tgt);
+                }
+            }
+        } else if (rule.layout == Config::AppLayout::English) {
+            if (hasLat) {
+                customEnProtected_.insert(w);
+                std::wstring trig = Platform::ToLower(LayoutEngine::Instance().EnToRu(w));
+                if (!trig.empty() && trig != w) {
+                    customRuToEnTriggers_.insert(trig);
+                }
+            } else {
+                customRuToEnTriggers_.insert(w);
+                std::wstring tgt = Platform::ToLower(LayoutEngine::Instance().RuToEn(w));
+                if (!tgt.empty() && tgt != w) {
+                    customEnProtected_.insert(tgt);
+                }
+            }
+        }
+    }
+}
+
 DetectedSwitch Detector::EvaluateWord(wchar_t delimiter) {
     std::lock_guard<std::mutex> lock(mutex_);
     DetectedSwitch result;
@@ -451,6 +513,85 @@ DetectedSwitch Detector::EvaluateWord(wchar_t delimiter) {
     lastWord_ = word;
     lastDelimiter_ = delimiter;
     currentBuffer_.clear();
+
+    SyncCustomDictionaryLocked();
+
+    std::wstring wordLower = Platform::ToLower(word);
+    bool hasLatinLetter = false;
+    bool hasCyrillicLetter = false;
+    for (wchar_t ch : wordLower) {
+        if (IsLatinLetter(ch)) hasLatinLetter = true;
+        else if (IsCyrillicLetter(ch)) hasCyrillicLetter = true;
+    }
+
+    // 0. Check user custom auto-switch dictionary first (overrides length/vowel heuristics and collisions)
+    if (!hasCyrillicLetter && (!customEnToRuTriggers_.empty() || !customEnProtected_.empty())) {
+        size_t enStemEnd = wordLower.length();
+        while (enStemEnd > 0 && IsEnPunctOnRuLayout(wordLower[enStemEnd - 1])) {
+            enStemEnd--;
+        }
+        std::wstring enStemForRu = wordLower.substr(0, enStemEnd);
+        if (customEnToRuTriggers_.count(wordLower) ||
+            (!enStemForRu.empty() && customEnToRuTriggers_.count(enStemForRu))) {
+            result.shouldSwitch = true;
+            result.currentLang = WordLanguage::English;
+            result.targetLang = WordLanguage::Russian;
+            result.originalWord = word;
+            result.convertedWord = LayoutEngine::Instance().EnToRu(word);
+            result.delimiter = delimiter;
+            return result;
+        }
+    }
+
+    if (hasCyrillicLetter && (!customRuToEnTriggers_.empty() || !customEnProtected_.empty())) {
+        size_t ruStemEnd = wordLower.length();
+        while (ruStemEnd > 0 && IsTrailingPunct(wordLower[ruStemEnd - 1])) {
+            ruStemEnd--;
+        }
+        std::wstring ruStemForEn = wordLower.substr(0, ruStemEnd);
+
+        std::wstring convertedToEn = LayoutEngine::Instance().RuToEn(word);
+        std::wstring convertedEnLower = Platform::ToLower(convertedToEn);
+        size_t enStemEnd = convertedEnLower.length();
+        while (enStemEnd > 0 && IsTrailingPunct(convertedEnLower[enStemEnd - 1])) {
+            enStemEnd--;
+        }
+        std::wstring enStemFromRu = convertedEnLower.substr(0, enStemEnd);
+
+        if (customRuToEnTriggers_.count(wordLower) ||
+            (!ruStemForEn.empty() && customRuToEnTriggers_.count(ruStemForEn)) ||
+            (!enStemFromRu.empty() && customEnProtected_.count(enStemFromRu))) {
+            result.shouldSwitch = true;
+            result.currentLang = WordLanguage::Russian;
+            result.targetLang = WordLanguage::English;
+            result.originalWord = word;
+            result.convertedWord = convertedToEn;
+            result.delimiter = delimiter;
+            return result;
+        }
+    }
+
+    // Protect words already in their target dictionary layout from heuristic switching
+    if (hasCyrillicLetter && !customRuProtected_.empty()) {
+        size_t plainEnd = wordLower.length();
+        while (plainEnd > 0 && IsTrailingPunct(wordLower[plainEnd - 1])) {
+            plainEnd--;
+        }
+        std::wstring plainStem = wordLower.substr(0, plainEnd);
+        if (customRuProtected_.count(wordLower) || (!plainStem.empty() && customRuProtected_.count(plainStem))) {
+            return result;
+        }
+    }
+    if (hasLatinLetter && !customEnProtected_.empty()) {
+        size_t plainEnd = wordLower.length();
+        while (plainEnd > 0 && IsTrailingPunct(wordLower[plainEnd - 1])) {
+            plainEnd--;
+        }
+        std::wstring plainStem = wordLower.substr(0, plainEnd);
+        if (customEnProtected_.count(wordLower) || (!plainStem.empty() && customEnProtected_.count(plainStem))) {
+            return result;
+        }
+    }
 
     // Check for numbers, code symbols, or mixed non-word symbols
     bool hasAlphaOrMapped = false;
@@ -468,11 +609,9 @@ DetectedSwitch Detector::EvaluateWord(wchar_t delimiter) {
         return result;
     }
 
-    std::wstring wordLower = Platform::ToLower(word);
-
     // 1. Check if word is typed in EN layout
     bool isEnLayout = true;
-    bool hasLatinLetter = false;
+    hasLatinLetter = false;
     for (wchar_t ch : wordLower) {
         if (IsLatinLetter(ch)) {
             hasLatinLetter = true;
@@ -484,7 +623,7 @@ DetectedSwitch Detector::EvaluateWord(wchar_t delimiter) {
 
     // 2. Check if word is typed in RU layout
     bool isRuLayout = true;
-    bool hasCyrillicLetter = false;
+    hasCyrillicLetter = false;
     for (wchar_t ch : wordLower) {
         if ((ch >= L'а' && ch <= L'я') || ch == L'ё') {
             hasCyrillicLetter = true;

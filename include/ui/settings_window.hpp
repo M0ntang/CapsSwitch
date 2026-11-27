@@ -14,7 +14,8 @@ namespace UI {
 enum class SettingsTab {
     General = 0,
     AppLayouts = 1,
-    Exclusions = 2
+    Dictionary = 2,
+    Exclusions = 3
 };
 
 struct FluentTextInput {
@@ -76,6 +77,7 @@ private:
     void DrawPageHeader(ID2D1RenderTarget* rt, const FluentPalette& pal, ID2D1SolidColorBrush* brush, float offsetY, float alpha);
     void DrawGeneralPage(ID2D1RenderTarget* rt, const FluentPalette& pal, ID2D1SolidColorBrush* brush, float offsetY, float alpha);
     void DrawAppLayoutsPage(ID2D1RenderTarget* rt, const FluentPalette& pal, ID2D1SolidColorBrush* brush, float offsetY, float alpha);
+    void DrawDictionaryPage(ID2D1RenderTarget* rt, const FluentPalette& pal, ID2D1SolidColorBrush* brush, float offsetY, float alpha);
     void DrawExclusionsPage(ID2D1RenderTarget* rt, const FluentPalette& pal, ID2D1SolidColorBrush* brush, float offsetY, float alpha);
     void DrawTextInput(ID2D1RenderTarget* rt, const FluentPalette& pal, ID2D1SolidColorBrush* brush, FluentTextInput& input, float offsetY, float alpha);
     void DrawFluentButton(ID2D1RenderTarget* rt, const FluentPalette& pal, ID2D1SolidColorBrush* brush,
@@ -92,10 +94,14 @@ private:
     void TogglePause();
     void ShowAppPickerMenu(const D2D1_RECT_F& anchorDip, bool forAppLayouts);
     void AddAppLayoutFromInput();
+    void AddDictWordFromInput();
     void AddExclusionFromInput();
     void ToggleAppRuleLayout(size_t index);
+    void ToggleDictWordLayout(size_t index);
     void RemoveAppRule(size_t index);
+    void RemoveDictWord(size_t index);
     void RemoveExclusion(size_t index);
+    void AutoSelectDictLayoutFromInput();
 
     void HandleMouseMove(float dipX, float dipY);
     void HandleMouseDown(float dipX, float dipY, bool doubleClick);
@@ -115,6 +121,7 @@ private:
         ThemeToggle,
         NavGeneral,
         NavAppLayouts,
+        NavDictionary,
         NavExclusions,
         FooterPauseBtn,
         ToggleRow0,
@@ -122,6 +129,7 @@ private:
         ToggleRow2,
         ToggleRow3,
         ToggleRow4,
+        ToggleRow5,
         AppInput,
         AppPickBtn,
         AppLangEn,
@@ -130,6 +138,13 @@ private:
         AppRow,
         AppRowBadge,
         AppRowDelete,
+        DictInput,
+        DictLangEn,
+        DictLangRu,
+        DictAddBtn,
+        DictRow,
+        DictRowBadge,
+        DictRowDelete,
         ExclInput,
         ExclPickBtn,
         ExclAddBtn,
@@ -160,12 +175,16 @@ private:
     SettingsTab activeTab_ = SettingsTab::General;
     SettingsTab prevTab_ = SettingsTab::General;
     Config::AppLayout selectedAppLayout_ = Config::AppLayout::Russian;
+    Config::AppLayout selectedDictLayout_ = Config::AppLayout::Russian;
 
     FluentTextInput appInput_;
+    FluentTextInput dictInput_;
     FluentTextInput exclInput_;
 
     float appScrollY_ = 0.0f;
     float appScrollTarget_ = 0.0f;
+    float dictScrollY_ = 0.0f;
+    float dictScrollTarget_ = 0.0f;
     float exclScrollY_ = 0.0f;
     float exclScrollTarget_ = 0.0f;
 
@@ -173,12 +192,12 @@ private:
     HitResult pressed_{};
     bool trackingMouse_ = false;
 
-    float toggleAnim_[5] = { 1.0f, 1.0f, 1.0f, 1.0f, 0.0f };
-    float toggleHover_[5] = {};
-    float togglePress_[5] = {};
-    float rowHover_[5] = {};
+    float toggleAnim_[6] = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 0.0f };
+    float toggleHover_[6] = {};
+    float togglePress_[6] = {};
+    float rowHover_[6] = {};
 
-    float navHover_[3] = {};
+    float navHover_[4] = {};
     float pageTransition_ = 1.0f;
     int pageDir_ = 1;
 
@@ -188,6 +207,7 @@ private:
     float statusPausedAnim_ = 0.0f;
     float langChipRuAnim_ = 0.0f;
     float langSelectorAnim_ = 1.0f;
+    float dictLangSelectorAnim_ = 1.0f;
 
     float btnPickHover_ = 0.0f;
     float btnAddHover_ = 0.0f;
